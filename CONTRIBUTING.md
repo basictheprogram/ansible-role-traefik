@@ -40,8 +40,11 @@ Follow these steps to contribute code:
 
 1. Open an issue describing what you want to change (follow one of the previous
     chapters).
-2. Create a fork and implement your changes
-3. Open a pull request to `develop`
+2. Fork [basictheprogram/ansible-role-traefik](https://github.com/basictheprogram/ansible-role-traefik)
+    and implement your changes.
+3. Open a pull request against `master`.
 
-Before submitting the Pull request, make sure to add a description of your
-changes to the changelog.
+Before submitting your pull request:
+
+* Ensure your changes pass `ansible-lint`.
+* Include a clear description of what changed and why in the pull request body.
