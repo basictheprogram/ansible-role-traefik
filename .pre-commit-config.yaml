@@ -50,14 +50,14 @@ repos:
         types: ["dockerfile"]
         entry: hadolint
 
-  - repo: https://github.com/ansible/ansible-lint
-    rev: v25.11.0
+  - repo: local
     hooks:
       - id: ansible-lint
-        files: \.(yaml|yml)$
         name: Ansible Lint
-        description: Run configurations on .ansible-lint file
-        verbose: false
+        language: system
+        entry: ansible-lint
+        files: \.(yaml|yml)$
+        pass_filenames: false
 
   - repo: https://github.com/jumanjihouse/pre-commit-hooks
     rev: 3.0.0

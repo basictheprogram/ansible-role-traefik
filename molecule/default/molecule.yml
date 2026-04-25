@@ -1,26 +1,28 @@
 ---
 dependency:
   name: galaxy
+
 driver:
   name: docker
-lint: |
-    set -e
-    yamllint .
+
 platforms:
   - name: instance
-    image: 'geerlingguy/docker-${MOLECULE_DISTRO:-centos7}-ansible:latest'
+    image: "geerlingguy/docker-${MOLECULE_DISTRO:-ubuntu2204}-ansible:latest"
     command: ${MOLECULE_DOCKER_COMMAND:-""}
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
     pre_build_image: true
+
 provisioner:
   name: ansible
-  lint:
-    name: ansible-lint
-# playbooks:
-#   converge: ${MOLECULE_PLAYBOOK:-playbook.yml}
+  config_options:
+    defaults:
+      interpreter_python: auto_silent
+
 scenario:
   name: default
+
 verifier:
-  name: testinfra
+  name: ansible
