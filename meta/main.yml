@@ -5,30 +5,17 @@ galaxy_info:
   namespace: realtime
   role_name: traefik
   author: "Matthias Leutenegger, maintained by Bob Tanner"
+  company: "Real Time Enterprises, Inc."
   description: Role to deploy traefik.
   license: "MIT"
   min_ansible_version: "2.12"
   platforms:
-    - name: EL
-      versions:
-        - "6"
-        - "7"
-    - name: Fedora
-      versions:
-        - "29"
     - name: Ubuntu
       versions:
-        - bionic
-        - cosmic
-        - focal
         - jammy
         - noble
-        - resolute
     - name: Debian
       versions:
-        - jessie
-        - stretch
-        - buster
         - bullseye
         - bookworm
         - trixie

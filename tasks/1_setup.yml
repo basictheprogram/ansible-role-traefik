@@ -6,7 +6,7 @@
     state: directory
     owner: root
     group: docker
-    mode: 550
+    mode: "0550"
   loop:
     - "{{ traefik_dir }}"
 
@@ -16,7 +16,7 @@
     dest: "{{ traefik_dir }}/traefik.yml"
     owner: root
     group: docker
-    mode: 550
+    mode: "0550"
     content: "{{ traefik_static_config | to_nice_yaml }}"
   notify:
     - Restart traefik container
