@@ -1,7 +1,6 @@
 ---
+- name: Generate config
+  ansible.builtin.include_tasks: 0_config.yml
 
-- name: generate config
-  include_tasks: 0_config.yml
-
-- name: setup traefik
-  include_tasks: 1_setup.yml
+- name: Setup traefik
+  ansible.builtin.include_tasks: 1_setup.yml
