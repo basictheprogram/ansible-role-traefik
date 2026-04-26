@@ -1,0 +1,111 @@
+---
+- name: Preflight | traefik_sites is not empty
+  ansible.builtin.assert:
+    that:
+      - traefik_sites | length > 0
+    fail_msg: "traefik_sites must contain at least one site entry"
+
+- name: Preflight | traefik_acme_email required when ACME enabled
+  ansible.builtin.assert:
+    that:
+      - traefik_acme_email | length > 0
+    fail_msg: "traefik_acme_email must be set when traefik_acme_enabled is true"
+  when: traefik_acme_enabled
+
+- name: Preflight | every cert resolver is defined in traefik_acme_resolvers
+  ansible.builtin.assert:
+    that:
+      - item.resolver in traefik_acme_resolvers
+    fail_msg: >-
+      cert '{{ item.name }}' references resolver '{{ item.resolver }}'
+      which is not defined in traefik_acme_resolvers
+  loop: "{{ traefik_wildcard_certs }}"
+  when: traefik_acme_enabled
+
+- name: Preflight | traefik_default_cert names a real cert
+  ansible.builtin.assert:
+    that:
+      - traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | list | length > 0
+    fail_msg: >-
+      traefik_default_cert '{{ traefik_default_cert }}' does not match
+      any entry in traefik_wildcard_certs
+  when: traefik_default_cert | length > 0
+
+- name: Preflight | explicit site.cert exists in traefik_wildcard_certs
+  ansible.builtin.assert:
+    that:
+      - traefik_wildcard_certs | selectattr('name', 'equalto', item.cert) | list | length > 0
+    fail_msg: >-
+      site '{{ item.name }}' specifies cert '{{ item.cert }}'
+      which is not in traefik_wildcard_certs
+  loop: "{{ traefik_sites | selectattr('cert', 'defined') | selectattr('cert', 'ne', '') | list }}"
+
+- name: Preflight | collect resolver credentials for active certs
+  ansible.builtin.set_fact:
+    _traefik_cred_items: >-
+      {{
+        traefik_wildcard_certs
+        | map(attribute='resolver')
+        | unique
+        | map('extract', traefik_acme_resolvers)
+        | map(attribute='env')
+        | map('dict2items')
+        | flatten
+      }}
+  no_log: true
+  when: traefik_acme_enabled
+
+- name: Preflight | resolver credentials are non-empty
+  ansible.builtin.assert:
+    that:
+      - item.value | length > 0
+    fail_msg: "credential '{{ item.key }}' is empty; set and vault the variable before running"
+  loop: "{{ _traefik_cred_items | default([]) }}"
+  no_log: true
+  when: traefik_acme_enabled
+
+- name: Preflight | compute FQDNs without cert coverage
+  ansible.builtin.set_fact:
+    _traefik_uncovered_fqdns: >-
+      {%- set ns = namespace(uncovered=[]) -%}
+      {%- for site in traefik_sites -%}
+      {%- for fqdn in site.fqdns -%}
+      {%- set found = namespace(ok=false) -%}
+      {%- for cert in traefik_wildcard_certs -%}
+      {%- for pat in ([cert.main] + (cert.sans | default([]))) -%}
+      {%- if not found.ok -%}
+      {%- if pat == fqdn or (
+            pat.startswith('*.') and fqdn.endswith(pat[1:]) and
+            (fqdn.split('.') | length) == (pat.split('.') | length)
+          ) -%}
+      {%- set found.ok = true -%}
+      {%- endif -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {%- if not found.ok -%}
+      {%- set ns.uncovered = ns.uncovered + [fqdn] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ ns.uncovered | to_json }}
+
+- name: Preflight | all site FQDNs covered by a cert
+  ansible.builtin.assert:
+    that:
+      - _traefik_uncovered_fqdns | from_json | length == 0
+    fail_msg: >-
+      FQDNs not covered by any cert in traefik_wildcard_certs:
+      {{ _traefik_uncovered_fqdns | from_json | join(', ') }}
+
+- name: Preflight | Docker socket exists
+  ansible.builtin.stat:
+    path: /var/run/docker.sock
+  register: _traefik_docker_sock
+
+- name: Preflight | Docker socket is reachable
+  ansible.builtin.assert:
+    that:
+      - _traefik_docker_sock.stat.exists
+      - _traefik_docker_sock.stat.issock
+    fail_msg: "/var/run/docker.sock not found or not a socket; ensure Docker Engine is installed and running"
