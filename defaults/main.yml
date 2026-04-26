@@ -1,53 +1,94 @@
 ---
-# defaults file
-# Setup vars
-traefik_dir: /etc/traefik
-traefik_hostname: "{{ inventory_hostname }}"
-traefik_network: traefik_proxy
+# Image and runtime
+traefik_image: "traefik:v3.4"
+traefik_container_name: traefik
+traefik_restart_policy: unless-stopped
+traefik_memory_limit: 1g
+traefik_memory_reservation: 512m
+traefik_ulimit_nofile_soft: 65536
+traefik_ulimit_nofile_hard: 65536
 
-# quicksetup vars
-traefik_qs_send_anonymous_usage: "{{
-  traefik_sendanonymoususage
-  | default(false)
-}}"
-traefik_qs_https: "{{ traefik_https | default(false) }}"
-traefik_qs_https_redirect: "{{ traefik_https_redirect | default(false) }}"
-traefik_qs_https_le: false
-traefik_qs_log_level: "{{ traefik_log_level | default('ERROR') }}"
+# Filesystem layout on the host
+traefik_data_dir: /etc/traefik
+traefik_dynamic_dir: "{{ traefik_data_dir }}/dynamic"
+traefik_certs_dir: /var/lib/traefik/certs
+traefik_compose_dir: /opt/traefik
 
+# Networking
+traefik_docker_network: traefik_proxy
+traefik_entrypoint_web_port: 80
+traefik_entrypoint_websecure_port: 443
+traefik_trusted_ips:
+  - "127.0.0.1/32"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
 
-# service vars
-traefik_container_name: 'traefik'
-traefik_network_name: "{{ traefik_network }}"
-traefik_network_ipam_temp: "{{ traefik_network_ipam | default({}) }}"
-traefik_network_ipam_subnet: "{{
-  traefik_network_ipam_temp.subnet
-  | default('172.16.1.0/24')
-}}"
-traefik_network_ipam_gateway: "{{
-  traefik_network_ipam_temp.gateway
-  | default('172.16.1.1')
-}}"
-traefik_network_ipam_iprange: "{{
-  traefik_network_ipam_temp.iprange
-  | default('172.16.1.0/24')
-}}"
-traefik_image: 'traefik'
-traefik_add_volumes: []
-traefik_ports:
-  - '80:80'
-  - '443:443'
-traefik_labels: {}
+# Logging
+traefik_log_level: INFO
+traefik_log_format: json
+traefik_journald_tag: "traefik.{{ inventory_hostname }}"
+traefik_journald_labels:
+  env: "{{ traefik_environment | default('prod') }}"
 
-# traefik_confkey_global: {}
-# traefik_confkey_serversTransport: {}
-# traefik_confkey_entryPoints: {}
-# traefik_confkey_providers: {}
-# traefik_confkey_api: {}
-# traefik_confkey_metrics: {}
-# traefik_confkey_ping: {}
-# traefik_confkey_log: {}
-# traefik_confkey_accessLog: {}
-# traefik_confkey_tracing: {}
-# traefik_confkey_hostResolver: {}
-# traefik_confkey_certificatesResolvers: {}
+# ACME / Let's Encrypt — DNS-01 challenge with multiple DNS providers
+traefik_acme_enabled: true
+traefik_acme_email: ""                   # required when traefik_acme_enabled
+traefik_acme_caserver: ""                # set to LE staging URL during initial bring-up
+
+# Default public DNS resolvers used to verify TXT propagation.
+traefik_acme_default_dns_resolvers:
+  - "1.1.1.1:53"
+  - "8.8.8.8:53"
+
+# One entry per (LE account, DNS provider) pair. Each resolver gets its
+# own acme-<name>.json under traefik_certs_dir. Credentials are injected
+# via env vars matching what the lego provider expects.
+traefik_acme_resolvers:
+  ionos:
+    provider: ionos
+    delay_before_check: 120              # IONOS propagation is genuinely slow
+    env:
+      IONOS_API_KEY: "{{ traefik_ionos_api_key }}"
+  route53:
+    provider: route53
+    delay_before_check: 0
+    env:
+      AWS_ACCESS_KEY_ID: "{{ traefik_route53_access_key_id }}"
+      AWS_SECRET_ACCESS_KEY: "{{ traefik_route53_secret_access_key }}"
+      AWS_REGION: us-east-1              # Route53 is global; lego still requires a region
+  cloudflare:
+    provider: cloudflare
+    delay_before_check: 0
+    env:
+      CF_DNS_API_TOKEN: "{{ traefik_cloudflare_api_token }}"
+
+# DNS provider credentials — MUST be vaulted on the consumer side.
+# Only populate resolvers you actually use; unused ones are zero-cost.
+traefik_ionos_api_key: ""
+traefik_route53_access_key_id: ""
+traefik_route53_secret_access_key: ""
+traefik_cloudflare_api_token: ""
+
+# Wildcard certs and the default cert (see DESIGN.md §Schemas)
+traefik_wildcard_certs: []
+traefik_default_cert: ""                 # must name an entry in traefik_wildcard_certs
+
+# Providers
+traefik_provider_docker_enabled: true
+traefik_provider_docker_exposed_by_default: false
+traefik_provider_file_enabled: true
+
+# Routing data — set in host_vars
+traefik_sites: []
+traefik_allowlist_groups: {}
+traefik_default_servers_transport:
+  forwardingTimeouts:
+    dialTimeout: 10s
+    responseHeaderTimeout: 300s
+    idleConnTimeout: 300s
+  maxIdleConnsPerHost: 200
+
+# Verification
+traefik_verify_healthcheck: true
+traefik_verify_healthcheck_timeout: 60   # seconds; poll docker inspect until healthy
