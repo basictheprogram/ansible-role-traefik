@@ -1,0 +1,108 @@
+---
+{#
+  fqdn_cert(fqdn) — returns the name of the first cert in
+  traefik_wildcard_certs whose main or sans covers fqdn.
+  Supports exact matches and single-label wildcard (*.example.com).
+#}
+{%- macro fqdn_cert(fqdn) -%}
+{%- set ns = namespace(result='') -%}
+{%- for cert in traefik_wildcard_certs -%}
+{%- if not ns.result -%}
+{%- for pat in ([cert.main] + (cert.sans | default([]))) -%}
+{%- if not ns.result -%}
+{%- if pat == fqdn or (
+      pat.startswith('*.') and
+      fqdn.endswith(pat[1:]) and
+      (fqdn.split('.') | length) == (pat.split('.') | length)
+    ) -%}
+{%- set ns.result = cert.name -%}
+{%- endif -%}
+{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
+{%- endfor -%}
+{{ ns.result }}{%- endmacro -%}
+http:
+  routers:
+{%- for site in traefik_sites %}
+{%- set grp = namespace(groups={}) %}
+{%- if site.cert | default('') %}
+{#   Explicit cert: all FQDNs belong to that cert group #}
+{%- set grp.groups = {site.cert: site.fqdns} %}
+{%- else %}
+{#   Auto-detect cert per FQDN and group #}
+{%- for fqdn in site.fqdns %}
+{%- set cname = fqdn_cert(fqdn) | trim %}
+{%- if cname %}
+{%- set grp.groups = grp.groups | combine({cname: (grp.groups[cname] | default([])) + [fqdn]}) %}
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+{#   Build middleware chain: allowlist → default middlewares → extras #}
+{%- set mw = namespace(chain=[]) %}
+{%- if site.allowlist | default([]) | length > 0 %}
+{%- set mw.chain = mw.chain + [site.name + '-allowlist@file'] %}
+{%- endif %}
+{%- for m in traefik_default_middlewares %}
+{%- set mw.chain = mw.chain + [m + '@file'] %}
+{%- endfor %}
+{%- for m in (site.extra_middlewares | default([])) %}
+{%- set mw.chain = mw.chain + [m] %}
+{%- endfor %}
+{#   Emit one router per cert group #}
+{%- for cert_name, cert_fqdns in grp.groups.items() %}
+{%- set router_name = site.name if (grp.groups | length == 1) else site.name + '-' + cert_name %}
+{%- set cert_obj = traefik_wildcard_certs | selectattr('name', 'equalto', cert_name) | first | default({}) %}
+
+    {{ router_name }}:
+      entryPoints:
+        - websecure
+      rule: "Host(`{{ cert_fqdns | join('`) || Host(`') }}`)"
+      middlewares:
+{%- for m in mw.chain %}
+        - "{{ m }}"
+{%- endfor %}
+      service: {{ site.name }}
+{%- if site.priority | default(none) is not none %}
+      priority: {{ site.priority }}
+{%- endif %}
+      tls:
+        certResolver: {{ cert_obj.resolver | default('') }}
+        domains:
+          - main: "{{ cert_obj.main | default('') }}"
+{%- if cert_obj.sans | default([]) | length > 0 %}
+            sans:
+{%- for san in cert_obj.sans %}
+              - "{{ san }}"
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+
+  services:
+{%- for site in traefik_sites %}
+{%- set transport = site.name + '-transport@file' if site.backend_tls_skip_verify | default(false) else (site.servers_transport ~ '@file' if site.servers_transport | default('') else 'default@file') %}
+
+    {{ site.name }}:
+      loadBalancer:
+        passHostHeader: {{ site.pass_host_header | default(true) | lower }}
+        serversTransport: "{{ transport }}"
+        servers:
+          - url: "{{ site.backend }}"
+{%- endfor %}
+
+  serversTransports:
+
+    default:
+      forwardingTimeouts:
+        dialTimeout: "{{ traefik_default_servers_transport.forwardingTimeouts.dialTimeout }}"
+        responseHeaderTimeout: "{{ traefik_default_servers_transport.forwardingTimeouts.responseHeaderTimeout }}"
+        idleConnTimeout: "{{ traefik_default_servers_transport.forwardingTimeouts.idleConnTimeout }}"
+      maxIdleConnsPerHost: {{ traefik_default_servers_transport.maxIdleConnsPerHost }}
+{%- for site in traefik_sites %}
+{%- if site.backend_tls_skip_verify | default(false) %}
+
+    {{ site.name }}-transport:
+      insecureSkipVerify: true
+{%- endif %}
+{%- endfor %}
