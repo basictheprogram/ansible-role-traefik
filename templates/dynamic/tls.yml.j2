@@ -1,0 +1,29 @@
+---
+{%- set default_cert = traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | first | default({}) %}
+tls:
+{% if default_cert %}
+  stores:
+    default:
+      defaultGeneratedCert:
+        resolver: {{ default_cert.resolver }}
+        domain:
+          main: "{{ default_cert.main }}"
+{%- if default_cert.sans | default([]) | length > 0 %}
+          sans:
+{%- for san in default_cert.sans %}
+            - "{{ san }}"
+{%- endfor %}
+{%- endif %}
+
+{% endif %}
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
