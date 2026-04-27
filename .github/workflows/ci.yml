@@ -49,10 +49,11 @@ jobs:
       fail-fast: false
       matrix:
         distro:
-          - ubuntu2204   # jammy
-          - ubuntu2404   # noble
-          - debian11     # bullseye
-          - debian12     # bookworm
+          - ubuntu2204 # jammy
+          - ubuntu2404 # noble
+          - debian11 # bullseye
+          - debian12 # bookworm
+          - debian13 # trixie
     steps:
       - name: Check out code
         uses: actions/checkout@v4
