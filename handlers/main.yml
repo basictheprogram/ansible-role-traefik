@@ -1,5 +1,5 @@
 ---
-- name: Restart traefik container
-  community.docker.docker_container:
-    name: "{{ traefik_container_name }}"
-    restart: true
+- name: Restart traefik
+  community.docker.docker_compose_v2:
+    project_src: "{{ traefik_compose_dir }}"
+    state: restarted

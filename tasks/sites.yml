@@ -1,0 +1,26 @@
+---
+# Dynamic config is hot-reloaded by Traefik's file provider (watch: true).
+# None of these tasks notify restart traefik.
+- name: Sites | render dynamic/middlewares.yml
+  ansible.builtin.template:
+    src: dynamic/middlewares.yml.j2
+    dest: "{{ traefik_dynamic_dir }}/middlewares.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Sites | render dynamic/sites.yml
+  ansible.builtin.template:
+    src: dynamic/sites.yml.j2
+    dest: "{{ traefik_dynamic_dir }}/sites.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Sites | render dynamic/tls.yml
+  ansible.builtin.template:
+    src: dynamic/tls.yml.j2
+    dest: "{{ traefik_dynamic_dir }}/tls.yml"
+    owner: root
+    group: root
+    mode: "0644"

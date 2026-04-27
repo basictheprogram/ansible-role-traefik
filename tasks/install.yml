@@ -19,7 +19,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: restart traefik
+  notify: Restart traefik
 
 - name: Install | render compose.yml
   ansible.builtin.template:
@@ -28,7 +28,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: restart traefik
+  notify: Restart traefik
 
 - name: Install | write .env.secrets
   ansible.builtin.template:
@@ -38,4 +38,4 @@
     group: root
     mode: "0600"
   no_log: true
-  notify: restart traefik
+  notify: Restart traefik

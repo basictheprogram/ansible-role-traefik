@@ -1,0 +1,5 @@
+---
+- name: Network | create traefik_proxy Docker network
+  community.docker.docker_network:
+    name: "{{ traefik_docker_network }}"
+    state: present
