@@ -68,17 +68,17 @@ traefik_acme_resolvers:
 # Wildcard certs — one entry per cert, bound to a resolver.
 # Every router whose FQDNs fall under main/sans reuses the same cert.
 traefik_wildcard_certs:
-  - name: comap-com
+  - name: example-com
     resolver: ionos
-    main: "*.portal.comap.com"
+    main: "*.portal.example.com"
     sans:
-      - "*.dev.comap.com"
-  - name: comap-org
+      - "*.dev.example.com"
+  - name: example-org
     resolver: route53
-    main: "*.portal.comap.org"
+    main: "*.portal.example.org"
     sans: []
 
-traefik_default_cert: comap-com    # installed in the TLS default store
+traefik_default_cert: example-com    # installed in the TLS default store
 ```
 
 ### Sites
@@ -87,13 +87,13 @@ Set in `host_vars` — one list per proxy host.
 
 ```yaml
 traefik_sites:
-  - name: judging-portal
+  - name: my-app
     fqdns:
-      - judging-portal.dev.comap.com
-      - judging.portal.comap.com
-    backend: http://10.78.1.247:8000
+      - my-app.dev.example.com
+      - my-app.portal.example.com
+    backend: http://10.0.0.10:8000
     backend_tls_skip_verify: false     # default
-    cert: comap-com                    # optional; defaults to traefik_default_cert
+    cert: example-com                  # optional; defaults to traefik_default_cert
     allowlist:                         # optional; references traefik_allowlist_groups
       - corp_office
       - staff_home
@@ -143,7 +143,7 @@ services:
     networks: [traefik_proxy]
     labels:
       traefik.enable: "true"
-      traefik.http.routers.myapp.rule: "Host(`myapp.portal.comap.com`)"
+      traefik.http.routers.myapp.rule: "Host(`myapp.portal.example.com`)"
       traefik.http.routers.myapp.entrypoints: "websecure"
       traefik.http.routers.myapp.tls: "true"
       traefik.http.routers.myapp.middlewares: "security-headers@file"
@@ -158,7 +158,7 @@ For a non-default wildcard, pin the cert on the router:
 
 ```yaml
 labels:
-  traefik.http.routers.myapp.tls.domains[0].main: "*.portal.comap.org"
+  traefik.http.routers.myapp.tls.domains[0].main: "*.portal.example.org"
 ```
 
 Allowlist middlewares are referenceable by name with the `@file` suffix:
