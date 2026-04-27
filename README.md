@@ -166,9 +166,9 @@ and deduplicates referenced groups per site.
 ```yaml
 traefik_allowlist_groups:
   corp_office:
-    - "50.187.180.96/28"
+    - "51.188.181.97/28"
   staff_home:
-    - "68.47.4.109/32"
+    - "69.48.14.119/32"
   dmz_internal:
     - "192.168.100.0/24"
 ```
