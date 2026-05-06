@@ -231,6 +231,7 @@ that one cert. Preflight fails otherwise.
 | :--- | :--- | :--- |
 | `traefik_image` | `traefik:v3.4` | Docker image to pull |
 | `traefik_container_name` | `traefik` | Container name |
+| `traefik_check_new_version` | `true` | Enable Traefik's built-in version-check log line on startup. Set `false` to silence it. |
 | `traefik_memory_limit` | `1g` | Hard memory cap |
 | `traefik_data_dir` | `/etc/traefik` | Static config and dynamic dir root |
 | `traefik_certs_dir` | `/var/lib/traefik/certs` | ACME JSON storage |

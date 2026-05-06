@@ -1,5 +1,5 @@
 ---
-{%- set default_cert = traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | first | default({}) %}
+{% set default_cert = traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | first | default({}) %}
 tls:
 {% if default_cert %}
   stores:
@@ -8,12 +8,12 @@ tls:
         resolver: {{ default_cert.resolver }}
         domain:
           main: "{{ default_cert.main }}"
-{%- if default_cert.sans | default([]) | length > 0 %}
+{% if default_cert.sans | default([]) | length > 0 %}
           sans:
-{%- for san in default_cert.sans %}
+{% for san in default_cert.sans %}
             - "{{ san }}"
-{%- endfor %}
-{%- endif %}
+{% endfor %}
+{% endif %}
 
 {% endif %}
   options:

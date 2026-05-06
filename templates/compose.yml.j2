@@ -37,9 +37,9 @@ services:
         hard: {{ traefik_ulimit_nofile_hard }}
 {% if traefik_journald_labels %}
     labels:
-{%- for key, value in traefik_journald_labels.items() %}
+{% for key, value in traefik_journald_labels.items() %}
       {{ key }}: "{{ value }}"
-{%- endfor %}
+{% endfor %}
     logging:
       driver: journald
       options:

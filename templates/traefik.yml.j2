@@ -1,7 +1,7 @@
 ---
 global:
   sendAnonymousUsage: false
-  checkNewVersion: false
+  checkNewVersion: {{ traefik_check_new_version | lower }}
 {% if traefik_verify_healthcheck %}
 ping: {}
 {% endif %}
@@ -31,9 +31,9 @@ entryPoints:
     address: ":{{ traefik_entrypoint_websecure_port }}"
     forwardedHeaders:
       trustedIPs:
-{%- for ip in traefik_trusted_ips %}
+{% for ip in traefik_trusted_ips %}
         - "{{ ip }}"
-{%- endfor %}
+{% endfor %}
 
 providers:
 {% if traefik_provider_docker_enabled %}
@@ -48,20 +48,20 @@ providers:
 {% endif %}
 {% if traefik_acme_enabled %}
 certificatesResolvers:
-{%- for name, resolver in traefik_acme_resolvers.items() %}
+{% for name, resolver in traefik_acme_resolvers.items() %}
   {{ name }}:
     acme:
       email: "{{ traefik_acme_email }}"
       storage: "{{ traefik_certs_dir }}/acme-{{ name }}.json"
-{%- if traefik_acme_caserver %}
+{% if traefik_acme_caserver %}
       caServer: "{{ traefik_acme_caserver }}"
-{%- endif %}
+{% endif %}
       dnsChallenge:
         provider: {{ resolver.provider }}
         delayBeforeCheck: {{ resolver.delay_before_check }}
         resolvers:
-{%- for r in (resolver.dns_resolvers | default(traefik_acme_default_dns_resolvers)) %}
+{% for r in (resolver.dns_resolvers | default(traefik_acme_default_dns_resolvers)) %}
           - "{{ r }}"
-{%- endfor %}
-{%- endfor %}
+{% endfor %}
+{% endfor %}
 {% endif %}

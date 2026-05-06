@@ -1,8 +1,9 @@
 ---
 # Image and runtime
-traefik_image: "traefik:v3.4"
+traefik_image: "traefik:v3.7"
 traefik_container_name: traefik
 traefik_restart_policy: unless-stopped
+traefik_check_new_version: true
 traefik_memory_limit: 1g
 traefik_memory_reservation: 512m
 traefik_ulimit_nofile_soft: 65536
@@ -33,8 +34,8 @@ traefik_journald_labels:
 
 # ACME / Let's Encrypt — DNS-01 challenge with multiple DNS providers
 traefik_acme_enabled: true
-traefik_acme_email: ""                   # required when traefik_acme_enabled
-traefik_acme_caserver: ""                # set to LE staging URL during initial bring-up
+traefik_acme_email: "" # required when traefik_acme_enabled
+traefik_acme_caserver: "" # set to LE staging URL during initial bring-up
 
 # Default public DNS resolvers used to verify TXT propagation.
 traefik_acme_default_dns_resolvers:
@@ -47,7 +48,7 @@ traefik_acme_default_dns_resolvers:
 traefik_acme_resolvers:
   ionos:
     provider: ionos
-    delay_before_check: 120              # IONOS propagation is genuinely slow
+    delay_before_check: 120 # IONOS propagation is genuinely slow
     env:
       IONOS_API_KEY: "{{ traefik_ionos_api_key }}"
   route53:
@@ -56,7 +57,7 @@ traefik_acme_resolvers:
     env:
       AWS_ACCESS_KEY_ID: "{{ traefik_route53_access_key_id }}"
       AWS_SECRET_ACCESS_KEY: "{{ traefik_route53_secret_access_key }}"
-      AWS_REGION: us-east-1              # Route53 is global; lego still requires a region
+      AWS_REGION: us-east-1 # Route53 is global; lego still requires a region
   cloudflare:
     provider: cloudflare
     delay_before_check: 0
@@ -72,7 +73,7 @@ traefik_cloudflare_api_token: ""
 
 # Wildcard certs and the default cert (see DESIGN.md §Schemas)
 traefik_wildcard_certs: []
-traefik_default_cert: ""                 # must name an entry in traefik_wildcard_certs
+traefik_default_cert: "" # must name an entry in traefik_wildcard_certs
 
 # Providers
 traefik_provider_docker_enabled: true
@@ -91,4 +92,4 @@ traefik_default_servers_transport:
 
 # Verification
 traefik_verify_healthcheck: true
-traefik_verify_healthcheck_timeout: 60   # seconds; poll docker inspect until healthy
+traefik_verify_healthcheck_timeout: 60 # seconds; poll docker inspect until healthy
