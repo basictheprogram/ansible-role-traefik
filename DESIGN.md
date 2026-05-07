@@ -28,18 +28,18 @@ pray" workflow.
 * No multi-cluster orchestration (Swarm, Kubernetes). Each VM is a
   single-host Docker Engine running the proxy and, optionally, co-located
   application containers.
-* No DNS record automation. The role talks to IONOS only for ACME TXT
+* No DNS record automation. The role talks to DNS providers only for ACME TXT
   records; A/AAAA records for site FQDNs remain operator-managed.
 * No external (non-ACME) cert distribution path. Importing certs from
   corp PKI / cert-manager / file is left as future work; schema reserved.
 * No host-local firewall management. Perimeter filtering is handled by
-  the upstream Fortigate; the role assumes :80 and :443 are reachable
+  an upstream device; the role assumes :80 and :443 are reachable
   to the proxy VM from the internet (DNS-01 does not strictly require
   :80, but the entrypoint is still served for HTTP→HTTPS redirect).
 
 ---
 
-## Current state (reference: comap.com dmz host)
+## Current state (reference: hand-managed deployment)
 
 One VM runs `docker compose up -d` against a hand-maintained tree:
 
@@ -50,34 +50,33 @@ traefik
 └── config
     ├── traefik.yml              # static config
     └── dynamic/
-        ├── judging-portal.yml
-        ├── contest-portal.yml
-        ├── joomla-portal.yml
-        ├── link-portal.yml
-        └── payment-portal.yml
+        ├── app-one.yml
+        ├── app-two.yml
+        ├── app-three.yml
+        ├── app-four.yml
+        └── app-five.yml
 ```
 
-Pain points observed in the live files:
+Pain points observed in hand-managed deployments:
 
 * `redirect-https`, `security-headers`, the `noop` service, the catch-all
   redirect router, and the `*-transport` block are duplicated across every
   dynamic file.
-* IP allowlists overlap heavily — corp office, two staff home IPs, and the
-  internal dmz subnet recur with portal-specific additions layered on top.
-  Each list is restated per portal.
-* Per-portal `*-acme` routers exist solely to keep the ACME challenge path
+* IP allowlists overlap heavily — corp office, staff home IPs, and the
+  internal subnet recur with site-specific additions layered on top.
+  Each list is restated per site.
+* Per-site `*-acme` routers exist solely to keep the ACME challenge path
   unredirected for HTTP-01 issuance. Eliminated entirely in the new
   design — DNS-01 needs no HTTP traffic for challenge, so neither the
-  per-portal acme routers nor the catch-all redirect-to-https router
+  per-site acme routers nor the catch-all redirect-to-https router
   carry any ACME concern.
-* Container hard-codes label `com.comap.dmz.env: "devel"`, journald tag
-  `traefik.dmz.comap.com`, network name `dmz`, image tag `traefik:3`.
-  None of these are parameterized today.
-* Drift: `payment-portal.yml` uses `redirect-https` with `permanent: false`
-  while every other portal uses `permanent: true` — normalized to
-  `permanent: true` org-wide in the new design. `link-portal.yml` defines
-  a `minio-rfc1918-only` allowlist middleware but the HTTPS router has
-  the middleware reference commented out — restored in the new design.
+* Container hard-codes labels, journald tag, network name, and image tag.
+  None of these are parameterized.
+* Drift: one site uses `redirect-https` with `permanent: false`
+  while every other site uses `permanent: true` — normalized to
+  `permanent: true` org-wide in the new design. Another site defines
+  an allowlist middleware but the HTTPS router has the middleware reference
+  commented out — restored in the new design.
 * Provider config enables both `docker` and `file` providers, but no
   current backend uses the docker provider. Co-located containers are a
   future-state need.
@@ -153,7 +152,7 @@ ansible-role-traefik/
 
 Defaults below are the role's public contract. Renames or removed
 variables are breaking changes per the project's conventional-commits
-rules (see `AGENTS.md`).
+rules.
 
 ```yaml
 # Image and runtime
@@ -271,21 +270,21 @@ generated `dynamic/sites.yml`.
 
 ```yaml
 traefik_sites:
-  - name: judging-portal              # required; used as router/service id
+  - name: my-app                      # required; used as router/service id
     fqdns:                            # required; one or more hostnames
-      - judging-portal.dev.comap.com
-      - judging.portal.comap.com
-      - judging.portal.comap.org
-    backend: http://10.78.1.247:8000  # required; full URL
+      - my-app.dev.example.com
+      - my-app.portal.example.com
+      - my-app.portal.example.org
+    backend: http://10.0.0.11:8000    # required; full URL
     backend_tls_skip_verify: false    # optional, default false
-    cert: comap-com                   # optional; name from
+    cert: example-com                 # optional; name from
                                       # traefik_wildcard_certs. Defaults
                                       # to traefik_default_cert.
     allowlist:                        # optional; references group names
       - corp_office
       - staff_home
-      - dmz_internal
-      - judging_extra
+      - internal_network
+      - partner_extra
     extra_middlewares: []             # optional; appended after allowlist
     pass_host_header: true            # optional, default true
     servers_transport: null           # optional override; null = default
@@ -313,23 +312,22 @@ unions referenced groups to produce a per-site `ipAllowList` middleware.
 ```yaml
 traefik_allowlist_groups:
   corp_office:
-    - "50.187.180.96/28"            # COMAP HQ public
+    - "203.0.113.96/28"             # HQ public egress (review annually)
   staff_home:
-    - "68.47.4.109/32"              # Bob (review 2026-Jan)
-    - "24.63.40.131/32"             # John (review 2026-Jan)
-  dmz_internal:
+    - "198.51.100.10/32"            # Alice (review 2026-Jan)
+    - "198.51.100.11/32"            # Bob (review 2026-Jan)
+  internal_network:
     - "192.168.100.0/24"
   vpn:
-    - "10.78.1.253/32"
-  judging_extra:
-    - "54.241.1.111/32"             # judging-portal
-    - "54.153.24.64/32"             # gold-image-judging-portal
-  contest_extra:
-    - "52.38.114.194/32"            # contest.com.com
+    - "10.0.0.253/32"
+  partner_extra:
+    - "203.0.113.101/32"            # Partner API host
+    - "203.0.113.102/32"            # Partner staging host
 ```
 
 Comments next to each CIDR are preserved through templating (Jinja can
-emit them) so the per-IP review-date metadata isn't lost.
+emit them) so the per-IP review-date metadata isn't lost when the
+middleware is generated.
 
 ### `traefik_wildcard_certs`
 
@@ -340,18 +338,18 @@ fall under this entry's `main` + `sans` reuses the same cert.
 
 ```yaml
 traefik_wildcard_certs:
-  - name: comap-com                # internal id; referenced by sites
+  - name: example-com              # internal id; referenced by sites
     resolver: ionos                # zones for these domains live at IONOS
-    main: "*.portal.comap.com"
+    main: "*.portal.example.com"
     sans:
-      - "*.dev.comap.com"
-      - "www.link.comap.com"
-  - name: comap-org
-    resolver: route53              # *.comap.org zone is at AWS Route53
-    main: "*.portal.comap.org"
+      - "*.dev.example.com"
+      - "www.link.example.com"
+  - name: example-org
+    resolver: route53              # *.example.org zone is at AWS Route53
+    main: "*.portal.example.org"
     sans: []
 
-traefik_default_cert: comap-com    # cert installed in TLS default store
+traefik_default_cert: example-com  # cert installed in TLS default store
 ```
 
 Notes:
@@ -391,13 +389,13 @@ applied to every site (default: `[security-headers]`).
 
 ## Static config (`traefik.yml.j2`)
 
-Replaces the current 85-line static config with a smaller one.
-Notable differences from today:
+Replaces the hand-managed static config with a parameterised template.
+Notable differences from a typical hand-managed config:
 
 * `entryPoints.web.http.redirections` performs the HTTP→HTTPS redirect
   at the entrypoint. With DNS-01 there is no challenge traffic on :80
   to preserve, so the catch-all `redirect-to-https` router and every
-  per-portal `*-acme` router go away entirely.
+  per-site `*-acme` router go away entirely.
 * `certificatesResolvers` is rendered as one block per entry in
   `traefik_acme_resolvers` — each with its own `dnsChallenge.provider`,
   `delayBeforeCheck`, propagation `resolvers` list, and a per-resolver
@@ -595,7 +593,7 @@ services:
     networks: [traefik_proxy]
     labels:
       traefik.enable: "true"
-      traefik.http.routers.myapp.rule: "Host(`myapp.portal.comap.com`)"
+      traefik.http.routers.myapp.rule: "Host(`myapp.portal.example.com`)"
       traefik.http.routers.myapp.entrypoints: "websecure"
       traefik.http.routers.myapp.tls: "true"
       traefik.http.routers.myapp.middlewares: "security-headers@file"
@@ -611,8 +609,8 @@ cert spec on the router:
 
 ```yaml
 labels:
-  traefik.http.routers.myapp.tls.certresolver: "letsencrypt"
-  traefik.http.routers.myapp.tls.domains[0].main: "*.portal.comap.org"
+  traefik.http.routers.myapp.tls.certresolver: "route53"
+  traefik.http.routers.myapp.tls.domains[0].main: "*.portal.example.org"
 ```
 
 Allowlist middlewares defined in `dynamic/middlewares.yml` are
@@ -677,10 +675,10 @@ inventory/
 ├── group_vars/
 │   ├── all/
 │   │   ├── traefik.yml          # org-wide defaults, allowlist groups
-│   │   └── vault_traefik.yml    # ansible-vault: ACME email if private
+│   │   └── vault_traefik.yml    # ansible-vault: DNS credentials, ACME email
 │   └── traefik_proxies.yml      # traefik_acme_email, image pin, etc.
 ├── host_vars/
-│   ├── proxy-comap-dmz-01.yml   # current comap host, restated as data
+│   ├── proxy-dmz-01.yml         # traefik_sites for the first DMZ proxy
 │   ├── proxy-uswest-01.yml
 │   └── proxy-euwest-01.yml
 └── hosts.yml
@@ -699,10 +697,10 @@ VM serves only non-default domains.
 
 ---
 
-## Migration: comap dmz host → role-managed
+## Migration: hand-managed Docker Compose → role-managed
 
 Strategy: stand the role-managed deploy up on a fresh path
-(`/opt/traefik`) without touching the existing `./traefik` tree. The
+(`/opt/traefik`) without touching the existing hand-managed tree. The
 existing setup uses HTTP-01 per-FQDN certs; the new setup uses DNS-01
 wildcards, so a fresh `acme.json` is required (the old one's per-FQDN
 certs aren't reused). Validate against LE staging first.
@@ -711,68 +709,116 @@ Step-by-step:
 
 1. Provision DNS-API credentials and store in
    `group_vars/all/vault_traefik.yml`:
-   * `traefik_ionos_api_key` — IONOS API key with write scope on the
-     `comap.com` zone.
-   * `traefik_route53_access_key_id` / `traefik_route53_secret_access_key`
-     — IAM user credentials scoped to the `comap.org` Route53 hosted
-     zone (permissions: `route53:GetChange`,
+   * One credential per DNS zone provider used by your cert specs.
+   * For Route53: IAM user with `route53:GetChange`,
      `route53:ChangeResourceRecordSets`,
-     `route53:ListHostedZonesByName`).
-2. Add `proxy-comap-dmz-01` to inventory; populate `traefik_sites`
-   from the table below and set `traefik_wildcard_certs` /
-   `traefik_default_cert` per the layout below. Set
-   `traefik_acme_email: techs@real-time.com` and
+     `route53:ListHostedZonesByName` scoped to the relevant hosted
+     zone(s).
+2. Add the proxy host to inventory; populate `traefik_sites` from your
+   current dynamic configs and set `traefik_wildcard_certs` /
+   `traefik_default_cert`. Set `traefik_acme_email` and
    `traefik_acme_caserver` to LE staging.
-3. Run the role. Verify: container healthcheck green, both
-   `acme-ionos.json` and `acme-route53.json` populated with their
-   respective wildcards, each site responds with the expected
-   (staging) cert chain. The IONOS resolver may take 1–3 minutes per
-   issuance attempt due to `delay_before_check: 120`.
-4. Cross-check generated routes against the existing tree. Two
-   intentional changes from current behavior: `link-portal` regains
-   its allowlist (was commented out), and `payment-portal`'s redirect
-   becomes `permanent: true` (was `permanent: false`).
+3. Run the role. Verify: container healthcheck green, each
+   `acme-<resolver>.json` populated with its wildcard, every site
+   responds with the expected (staging) cert chain. IONOS resolver may
+   take 1–3 minutes per issuance attempt due to
+   `delay_before_check: 120`.
+4. Cross-check generated routes against the existing hand-managed tree.
+   Intentional behavior changes to communicate to stakeholders:
+   * All HTTP→HTTPS redirects use `permanent: true` (301) — normalize
+     any sites that previously used `permanent: false`.
+   * Any allowlist middleware references that were commented out in the
+     old config are restored — verify the CIDR groups are correct
+     before cutover.
 5. Clear `traefik_acme_caserver`, delete the staging `acme-*.json`
    files once, re-run to issue prod certs against LE production.
-6. Stop the old stack (`docker compose down` in `./traefik`).
+6. Stop the old stack (`docker compose down` in the old directory).
 
-Wildcard cert layout for the comap host. `comap.com` zones are at
-IONOS, `comap.org` is at Route53, so two cert specs bound to two
-resolvers:
+### Example cert layout for a dual-TLD deployment
+
+When DNS zones for `.com` and `.org` are hosted at different providers
+(e.g. IONOS for `.com`, Route53 for `.org`), use two cert specs:
 
 ```yaml
 traefik_wildcard_certs:
-  - name: comap-com
+  - name: example-com
     resolver: ionos
-    main: "*.portal.comap.com"
+    main: "*.portal.example.com"
     sans:
-      - "*.dev.comap.com"
-      - "www.link.comap.com"
-  - name: comap-org
+      - "*.dev.example.com"
+      - "www.link.example.com"
+  - name: example-org
     resolver: route53
-    main: "*.portal.comap.org"
+    main: "*.portal.example.org"
     sans: []
 
-traefik_default_cert: comap-com
+traefik_default_cert: example-com
 ```
 
-Three of the five portals (`judging-portal`, `contest-portal`,
-`joomla-portal`) currently serve both `.com` and `.org` FQDNs. Under
-this layout each of those sites emits two routers under the hood —
-`<site>-comap-com` (issued via IONOS) and `<site>-comap-org` (issued
-via Route53) — sharing the same backend, middleware chain, and
-allowlist. The split is invisible at the inventory level (still one
-entry per site).
+Sites whose `fqdns` span both TLDs emit two routers automatically —
+`<site>-example-com` and `<site>-example-org` — sharing the same
+backend, middleware chain, and allowlist. The split is invisible at the
+inventory level; the operator still writes one site entry.
 
-Mapping of today's portals to `traefik_sites`:
+### Example `traefik_sites` mapping
 
-| name           | fqdns                                                                            | backend                  | allowlist groups                                              |
-|----------------|----------------------------------------------------------------------------------|--------------------------|---------------------------------------------------------------|
-| judging-portal | judging-portal.dev.comap.com, judging.portal.comap.com, judging.portal.comap.org | http://10.78.1.247:8000  | corp_office, staff_home, dmz_internal, judging_extra          |
-| contest-portal | contest.portal.comap.com, contest.portal.comap.org                               | http://10.78.1.246:80    | corp_office, staff_home, dmz_internal                         |
-| joomla-portal  | joomla.portal.comap.com, joomla.portal.comap.org                                 | http://10.78.1.249:80    | corp_office, staff_home, dmz_internal                         |
-| link-portal    | link.portal.comap.com, www.link.comap.com                                        | http://10.78.1.243:9000  | corp_office, staff_home, dmz_internal, vpn, contest_extra     |
-| payment-portal | payment-portal.dev.comap.com, payment.portal.comap.com                           | http://10.78.1.245:8000  | corp_office, staff_home, dmz_internal, contest_extra          |
+```yaml
+traefik_sites:
+
+  - name: results-portal
+    fqdns:
+      - results.dev.example.com
+      - results.portal.example.com
+      - results.portal.example.org
+    backend: http://10.0.0.11:8000
+    allowlist:
+      - corp_office
+      - staff_home
+      - internal_network
+      - partner_extra
+
+  - name: registration-portal
+    fqdns:
+      - registration.portal.example.com
+      - registration.portal.example.org
+    backend: http://10.0.0.12:80
+    allowlist:
+      - corp_office
+      - staff_home
+      - internal_network
+
+  - name: cms-portal
+    fqdns:
+      - cms.portal.example.com
+      - cms.portal.example.org
+    backend: http://10.0.0.13:80
+    allowlist:
+      - corp_office
+      - staff_home
+      - internal_network
+
+  - name: link-portal
+    fqdns:
+      - link.portal.example.com
+      - www.link.example.com
+    backend: http://10.0.0.14:9000
+    allowlist:
+      - corp_office
+      - staff_home
+      - internal_network
+      - vpn
+      - partner_extra
+
+  - name: payment-portal
+    fqdns:
+      - payment.dev.example.com
+      - payment.portal.example.com
+    backend: http://10.0.0.15:8000
+    allowlist:
+      - corp_office
+      - staff_home
+      - internal_network
+```
 
 ---
 
@@ -783,9 +829,9 @@ Mapping of today's portals to `traefik_sites`:
   wildcard covers many sites). Decide which role / cron job owns the
   backup. Per-resolver files mean a per-provider RPO is achievable
   if useful.
-* **Multi-region rollout order** — pick the first non-comap region to
-  pilot; comap dmz cuts over after the role is proven elsewhere. New
-  regions need their own credentials scoped to that region's zones
+* **Multi-region rollout order** — decide which region pilots the
+  role; remaining regions cut over after the role is proven.
+  New regions need their own credentials scoped to that region's zones
   (or shared org credentials with zone-level write to the relevant
   zones).
 * **IONOS `delay_before_check` measurement** — 120 s is a defensive
