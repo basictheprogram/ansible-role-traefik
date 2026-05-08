@@ -1,0 +1,67 @@
+---
+global:
+  sendAnonymousUsage: false
+  checkNewVersion: {{ traefik_check_new_version | lower }}
+{% if traefik_verify_healthcheck %}
+ping: {}
+{% endif %}
+
+log:
+  level: {{ traefik_log_level }}
+  format: {{ traefik_log_format }}
+
+accessLog:
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+
+entryPoints:
+  web:
+    address: ":{{ traefik_entrypoint_web_port }}"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":{{ traefik_entrypoint_websecure_port }}"
+    forwardedHeaders:
+      trustedIPs:
+{% for ip in traefik_trusted_ips %}
+        - "{{ ip }}"
+{% endfor %}
+
+providers:
+{% if traefik_provider_docker_enabled %}
+  docker:
+    network: "{{ traefik_docker_network }}"
+    exposedByDefault: {{ traefik_provider_docker_exposed_by_default | lower }}
+{% endif %}
+{% if traefik_provider_file_enabled %}
+  file:
+    directory: "{{ traefik_dynamic_dir }}"
+    watch: true
+{% endif %}
+{% if traefik_acme_enabled %}
+certificatesResolvers:
+{% for name, resolver in traefik_acme_resolvers.items() %}
+  {{ name }}:
+    acme:
+      email: "{{ traefik_acme_email }}"
+      storage: "{{ traefik_certs_dir }}/acme-{{ name }}.json"
+{% if traefik_acme_caserver %}
+      caServer: "{{ traefik_acme_caserver }}"
+{% endif %}
+      dnsChallenge:
+        provider: {{ resolver.provider }}
+        delayBeforeCheck: {{ resolver.delay_before_check }}
+        resolvers:
+{% for r in (resolver.dns_resolvers | default(traefik_acme_default_dns_resolvers)) %}
+          - "{{ r }}"
+{% endfor %}
+{% endfor %}
+{% endif %}

@@ -1,0 +1,91 @@
+---
+name: CI
+
+"on":
+  push:
+    branches: ["**"]
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install pre-commit dependencies
+        run: pip install pre-commit ansible-lint ruff
+
+      - name: Install required Ansible collections
+        run: ansible-galaxy collection install community.docker
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: pre-commit-
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files
+
+  molecule:
+    name: Molecule
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install Ansible and molecule
+        run: |
+          pip install \
+            "ansible-core>=2.20,<2.21" \
+            molecule \
+            "molecule-plugins[docker]" \
+            pytest-testinfra \
+            PyYAML \
+            docker
+
+      - name: Install required Ansible collections
+        run: ansible-galaxy collection install community.docker
+
+      - name: Create role symlink for Ansible
+        run: |
+          mkdir -p "$HOME/.ansible/roles"
+          ln -sf "$GITHUB_WORKSPACE" "$HOME/.ansible/roles/realtime.traefik"
+
+      - name: Run molecule test
+        run: molecule test
+        env:
+          PY_COLORS: "1"
+          ANSIBLE_FORCE_COLOR: "1"
+
+  # galaxy:
+  #   name: Galaxy import
+  #   runs-on: ubuntu-latest
+  #   needs: molecule
+  #   if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+  #   steps:
+  #     - name: Trigger Ansible Galaxy import
+  #       uses: ansible/galaxy-action@v1
+  #       with:
+  #         galaxy_api_key: ${{ secrets.GALAXY_API_KEY }}
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}

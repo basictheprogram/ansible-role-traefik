@@ -1,0 +1,41 @@
+---
+- name: Install | create role directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ traefik_data_dir }}"
+    - "{{ traefik_dynamic_dir }}"
+    - "{{ traefik_certs_dir }}"
+    - "{{ traefik_compose_dir }}"
+
+- name: Install | render traefik.yml static config
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ traefik_data_dir }}/traefik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Install | render compose.yml
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ traefik_compose_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Install | write .env.secrets
+  ansible.builtin.template:
+    src: env.secrets.j2
+    dest: "{{ traefik_compose_dir }}/.env.secrets"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart traefik

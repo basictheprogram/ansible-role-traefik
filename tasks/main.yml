@@ -1,7 +1,18 @@
 ---
+- name: Preflight checks
+  ansible.builtin.import_tasks: preflight.yml
 
-- name: generate config
-  include_tasks: 0_config.yml
+- name: Install directories, static config, secrets
+  ansible.builtin.import_tasks: install.yml
 
-- name: setup traefik
-  include_tasks: 1_setup.yml
+- name: Create Docker network
+  ansible.builtin.import_tasks: network.yml
+
+- name: Render dynamic config
+  ansible.builtin.import_tasks: sites.yml
+
+- name: Start Traefik service
+  ansible.builtin.import_tasks: service.yml
+
+- name: Verify Traefik is healthy
+  ansible.builtin.import_tasks: verify.yml

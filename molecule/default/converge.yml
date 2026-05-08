@@ -1,0 +1,62 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    # ACME disabled — molecule runs without real DNS provider credentials.
+    # Resolver is defined so .env.secrets renders with realistic content;
+    # credentials are intentionally fake test values.
+    traefik_acme_enabled: false
+
+    # journald is unavailable on Docker Desktop; use json-file for molecule.
+    traefik_compose_log_driver: json-file
+
+    # Static tag so every platform renders an identical compose.yml and
+    # produces the same config-hash. Without this, inventory_hostname
+    # differences cause compose to recreate the container on each platform,
+    # resulting in a name conflict on the shared Docker Desktop daemon.
+    traefik_journald_tag: "traefik.molecule"
+
+    # Skip healthcheck in molecule — the verify step is a production concern
+    # and depends on Traefik having real network access and port bindings.
+    traefik_verify_healthcheck: false
+
+    traefik_acme_resolvers:
+      route53:
+        provider: route53
+        delay_before_check: 0
+        env:
+          AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE"
+          AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+          AWS_REGION: us-east-1
+
+    traefik_wildcard_certs:
+      - name: test-cert
+        resolver: route53
+        main: "*.example.test"
+        sans:
+          - "www.example.test"
+
+    traefik_default_cert: test-cert
+
+    traefik_allowlist_groups:
+      office:
+        - "203.0.113.0/24"    # TEST-NET-3, RFC 5737 — documentation use only
+      staff:
+        - "198.51.100.1/32"   # TEST-NET-2, RFC 5737 — documentation use only
+
+    traefik_sites:
+      - name: app
+        fqdns:
+          - app.example.test
+        backend: http://127.0.0.1:8080
+        allowlist:
+          - office
+          - staff
+
+      - name: open-app
+        fqdns:
+          - open.example.test
+        backend: http://127.0.0.1:9090
+
+  roles:
+    - role: realtime.traefik

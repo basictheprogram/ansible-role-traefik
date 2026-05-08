@@ -1,0 +1,57 @@
+---
+services:
+  {{ traefik_container_name }}:
+    image: "{{ traefik_image }}"
+    container_name: "{{ traefik_container_name }}"
+    restart: "{{ traefik_restart_policy }}"
+    networks:
+      - {{ traefik_docker_network }}
+    ports:
+      - "{{ traefik_entrypoint_web_port }}:{{ traefik_entrypoint_web_port }}"
+      - "{{ traefik_entrypoint_websecure_port }}:{{ traefik_entrypoint_websecure_port }}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/localtime:/etc/localtime:ro
+      - {{ traefik_data_dir }}/traefik.yml:/etc/traefik/traefik.yml:ro
+      - {{ traefik_dynamic_dir }}:{{ traefik_dynamic_dir }}
+      - {{ traefik_certs_dir }}:{{ traefik_certs_dir }}
+    env_file:
+      - .env.secrets
+{% if traefik_verify_healthcheck %}
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+{% endif %}
+    deploy:
+      resources:
+        limits:
+          memory: {{ traefik_memory_limit }}
+        reservations:
+          memory: {{ traefik_memory_reservation }}
+    ulimits:
+      nofile:
+        soft: {{ traefik_ulimit_nofile_soft }}
+        hard: {{ traefik_ulimit_nofile_hard }}
+{% if traefik_journald_labels %}
+    labels:
+{% for key, value in traefik_journald_labels.items() %}
+      {{ key }}: "{{ value }}"
+{% endfor %}
+    logging:
+      driver: {{ traefik_compose_log_driver }}
+      options:
+        tag: "{{ traefik_journald_tag }}"
+        labels: "{{ traefik_journald_labels.keys() | list | join(',') }}"
+{% else %}
+    logging:
+      driver: {{ traefik_compose_log_driver }}
+      options:
+        tag: "{{ traefik_journald_tag }}"
+{% endif %}
+
+networks:
+  {{ traefik_docker_network }}:
+    external: true

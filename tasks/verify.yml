@@ -1,0 +1,12 @@
+---
+- name: Verify | wait for Traefik healthcheck to report healthy
+  ansible.builtin.command:
+    cmd: >-
+      docker inspect --format='{{ '{{' }}.State.Health.Status{{ '}}' }}'
+      {{ traefik_container_name }}
+  register: _traefik_health
+  until: _traefik_health.stdout == "healthy"
+  retries: "{{ (traefik_verify_healthcheck_timeout | int / 5) | int }}"
+  delay: 5
+  changed_when: false
+  when: traefik_verify_healthcheck | bool

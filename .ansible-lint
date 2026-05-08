@@ -1,0 +1,24 @@
+---
+exclude_paths:
+  - ~/.ansible
+  - .gitlab-ci.yml
+  - .pre-commit-config.yaml
+  - .cache/
+  - .github/
+  - .ansible/
+
+skip_list:
+  - "skip_this_tag"
+  - "git-latest"
+  - "var-naming"
+  - "package-latest"
+
+enable_list:
+  - fqcn-builtins
+
+use_default_rules: true
+
+mock_modules:
+  - community.docker.docker_compose_v2
+  - community.docker.docker_container
+  - community.docker.docker_network
