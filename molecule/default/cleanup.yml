@@ -3,13 +3,16 @@
 # testing. These are outside molecule's own container lifecycle and are
 # not removed by the destroy playbook automatically.
 #
-# Runs once per host before molecule destroy (in both `molecule destroy`
-# and `molecule test`). Errors are suppressed — the resources may not
-# exist if the converge failed early.
+# Targets localhost (the host running Docker) rather than the molecule
+# test instances — molecule test calls cleanup before create, so the
+# instance inventory is empty on the first pass. localhost is always
+# present and has access to the Docker daemon via the socket.
+#
+# Errors are suppressed — resources may not exist if converge failed
+# early or this is the first run on a clean machine.
 - name: Cleanup
-  hosts: all
+  hosts: localhost
   gather_facts: false
-  become: true
   tasks:
     - name: Cleanup | remove Traefik container from host daemon
       ansible.builtin.command:
