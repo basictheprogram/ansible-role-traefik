@@ -3,3 +3,5 @@
   community.docker.docker_compose_v2:
     project_src: "{{ traefik_compose_dir }}"
     state: restarted
+  when: _traefik_docker_sock.stat.issock | default(false)
+  tags: molecule-notest

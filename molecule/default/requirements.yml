@@ -1,0 +1,6 @@
+---
+# Molecule dependency requirements for the default scenario.
+# This role has no Galaxy role or collection dependencies beyond what
+# the main project's requirements.yml already installs.
+collections: []
+roles: []

@@ -1,0 +1,24 @@
+---
+# Remove resources created on the host Docker daemon by the role during
+# testing. These are outside molecule's own container lifecycle and are
+# not removed by the destroy playbook automatically.
+#
+# Runs once per host before molecule destroy (in both `molecule destroy`
+# and `molecule test`). Errors are suppressed — the resources may not
+# exist if the converge failed early.
+- name: Cleanup
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Cleanup | remove Traefik container from host daemon
+      ansible.builtin.command:
+        cmd: docker rm -f traefik
+      changed_when: false
+      failed_when: false
+
+    - name: Cleanup | remove traefik_proxy network from host daemon
+      ansible.builtin.command:
+        cmd: docker network rm traefik_proxy
+      changed_when: false
+      failed_when: false

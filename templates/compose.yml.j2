@@ -41,13 +41,13 @@ services:
       {{ key }}: "{{ value }}"
 {% endfor %}
     logging:
-      driver: journald
+      driver: {{ traefik_compose_log_driver }}
       options:
         tag: "{{ traefik_journald_tag }}"
         labels: "{{ traefik_journald_labels.keys() | list | join(',') }}"
 {% else %}
     logging:
-      driver: journald
+      driver: {{ traefik_compose_log_driver }}
       options:
         tag: "{{ traefik_journald_tag }}"
 {% endif %}

@@ -1,6 +1,8 @@
 ---
 dependency:
   name: galaxy
+  options:
+    ignore-errors: true
 
 driver:
   name: docker
@@ -8,36 +10,50 @@ driver:
 platforms:
   - name: debian12
     image: "geerlingguy/docker-debian12-ansible:latest"
+    cgroupns_mode: host
     command: ""
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
     pre_build_image: true
 
   - name: debian13
     image: "geerlingguy/docker-debian13-ansible:latest"
+    cgroupns_mode: host
     command: ""
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
     pre_build_image: true
 
   - name: ubuntu2204
     image: "geerlingguy/docker-ubuntu2204-ansible:latest"
+    cgroupns_mode: host
     command: ""
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
     pre_build_image: true
 
   - name: ubuntu2404
     image: "geerlingguy/docker-ubuntu2404-ansible:latest"
+    cgroupns_mode: host
     command: ""
     volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+    privileged: true
+    pre_build_image: true
+
+  - name: ubuntu2604
+    image: "geerlingguy/docker-ubuntu2604-ansible:latest"
+    cgroupns_mode: host
+    command: ""
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
     pre_build_image: true
@@ -47,9 +63,18 @@ provisioner:
   config_options:
     defaults:
       interpreter_python: auto_silent
+      remote_tmp: /tmp
+  env:
+    # molecule-docker's destroy.yml uses a string-truthy `when:` condition
+    # that became a hard error in ansible-core 2.20. Allow it until
+    # molecule-plugins ships a fix.
+    ANSIBLE_ALLOW_BROKEN_CONDITIONALS: "1"
 
 scenario:
   name: default
 
 verifier:
-  name: ansible
+  name: testinfra
+  directory: ./tests/
+  options:
+    v: true

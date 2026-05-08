@@ -28,6 +28,7 @@ traefik_trusted_ips:
 # Logging
 traefik_log_level: INFO
 traefik_log_format: json
+traefik_compose_log_driver: journald
 traefik_journald_tag: "traefik.{{ inventory_hostname }}"
 traefik_journald_labels:
   env: "{{ traefik_environment | default('prod') }}"

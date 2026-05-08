@@ -6,6 +6,87 @@ TLS edge at regional offices. Forked from arillso/ansible.traefik
 `ansible-core` 2.20, Traefik v3, Debian 12/13, Ubuntu 22.04/24.04,
 and a multi-region deployment model.
 
+---
+
+## Behavioral guidelines
+
+These four rules govern how to work in this repo. They bias toward
+caution over speed — for trivial one-liner changes, use judgment.
+
+### 1. Think before writing tasks
+
+**Don't assume. Surface tradeoffs. Ask when uncertain.**
+
+Before adding or changing anything:
+
+* State assumptions explicitly. If a variable could live in `defaults/`,
+  `vars/`, or `host_vars`, say which and why before choosing.
+* If multiple approaches exist (e.g. `ansible.builtin.command` vs a
+  purpose-built module), present the tradeoff — don't pick silently.
+* If the request is ambiguous (which task file? which template block?),
+  name the ambiguity and ask. Don't guess and implement.
+* If a simpler approach solves the problem, say so and push back.
+* If something conflicts with `DESIGN.md`, flag it before proceeding.
+
+### 2. Simplicity first
+
+**Minimum tasks, variables, and template logic that solve the problem.**
+
+* No new default variables beyond what the task being added requires.
+* No Jinja2 abstraction for logic used in only one template.
+* No `when:` conditions for scenarios that have no test coverage.
+* No "future-proofing" of the public interface that wasn't asked for.
+* If a template block is 30 lines and could be 10, rewrite it.
+
+Ask: would a senior Ansible engineer call this overcomplicated? If yes,
+simplify.
+
+### 3. Surgical changes
+
+**Touch only what the request requires. Clean up only your own mess.**
+
+When editing existing tasks, templates, or defaults:
+
+* Don't reformat adjacent YAML, fix unrelated comments, or clean up
+  upstream code that wasn't broken by your change.
+* Match the existing style — indentation, quoting, bullet character —
+  even if you'd do it differently from scratch.
+* If you notice unrelated dead code or stale variables, mention it;
+  don't delete it without being asked.
+
+When your change creates orphans:
+
+* Remove `vars`, `when` conditions, or template blocks that YOUR change
+  made unreachable.
+* Don't remove pre-existing orphans unless explicitly asked.
+
+Every changed line should trace directly to the request.
+
+### 4. Goal-driven execution
+
+**Define the success criteria before starting. Verify before declaring done.**
+
+Transform requests into verifiable outcomes:
+
+* "Add a preflight assertion" → `molecule converge` passes,
+  `molecule verify` passes, `pre-commit run --all-files` is clean.
+* "Fix an idempotency bug" → second `molecule converge` reports zero
+  changed tasks.
+* "Refactor a template" → rendered output is byte-for-byte identical
+  to pre-refactor output on a converged instance.
+
+For multi-step changes, state a brief plan before starting:
+
+    1. Edit template → verify: rendered YAML is valid
+    2. Add task       → verify: molecule converge green
+    3. Add test       → verify: molecule verify green
+    4. Lint           → verify: pre-commit run --all-files clean
+
+Strong success criteria allow independent verification. Weak criteria
+("make it work") require constant clarification.
+
+---
+
 ## Source of truth
 
 **`DESIGN.md`** in this repo is the authoritative spec for the new
@@ -161,6 +242,66 @@ linking to the section rather than guessing:
   template / task work; skips the destroy/create cycle.
 * `molecule test` — full role exercise per platform. Slow; run
   before declaring a change done.
+
+## Test framework — testinfra
+
+The verifier is **testinfra** (`pytest-testinfra`), not the Ansible
+verifier. Tests are written in Python and live in:
+
+    molecule/default/tests/test_default.py
+
+### Why testinfra over the Ansible verifier
+
+The Ansible verifier expresses assertions as `register` / `assert`
+YAML pairs — verbose and awkward for anything involving string parsing,
+regex, or negative assertions. testinfra tests are ordinary pytest
+functions: `host` is a fixture that connects to the converged instance,
+and assertions are plain Python. Prefer testinfra for all new verify
+work.
+
+### Host fixture type
+
+Import `Host` from `testinfra.host` for type annotations, guarded by
+`TYPE_CHECKING` so it is not imported at runtime (ruff TC002):
+
+    from __future__ import annotations
+
+    from typing import TYPE_CHECKING, Any
+
+    if TYPE_CHECKING:
+        from testinfra.host import Host
+
+    def test_example(host: Host) -> None:
+        assert host.file("/etc/traefik").exists
+
+All test functions must be annotated with `host: Host` and return
+`-> None`. Helper functions that accept a host should use `Host` as
+well. Use `from typing import Any` for YAML-parsed dict/list return
+types.
+
+### Key host fixture methods used in this role
+
+* `host.file(path)` — inspect a file: `.exists`, `.is_directory`,
+  `.mode`, `.user`, `.group`, `.content_string`
+* `host.run(cmd)` — run a shell command: `.rc`, `.stdout`, `.stderr`
+* `host.docker(name)` — inspect a Docker container: `.is_running`
+
+### Installing test dependencies
+
+    pip install -r molecule/default/requirements.txt
+
+Contains `pytest-testinfra` and `PyYAML`.
+
+### Test coverage approach
+
+There is no automated coverage tool for Ansible task branches — you
+build coverage by writing scenarios that exercise different variable
+combinations. The `default` scenario covers the happy path with ACME
+disabled. Add named scenarios under `molecule/` for:
+
+* Preflight failure cases (bad resolver reference, uncovered FQDN)
+* Multi-cert split (site FQDNs spanning two cert specs)
+* `traefik_acme_enabled: true` with a mock resolver (future)
 
 ## Working with the consumer side
 

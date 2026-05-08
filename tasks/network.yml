@@ -3,3 +3,4 @@
   community.docker.docker_network:
     name: "{{ traefik_docker_network }}"
     state: present
+  tags: molecule-notest

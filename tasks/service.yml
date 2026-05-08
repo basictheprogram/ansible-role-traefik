@@ -4,3 +4,4 @@
     project_src: "{{ traefik_compose_dir }}"
     state: present
     pull: missing
+  tags: molecule-notest

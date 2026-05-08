@@ -109,3 +109,4 @@
       - _traefik_docker_sock.stat.exists
       - _traefik_docker_sock.stat.issock
     fail_msg: "/var/run/docker.sock not found or not a socket; ensure Docker Engine is installed and running"
+  tags: molecule-notest
