@@ -12,13 +12,10 @@ galaxy_info:
   platforms:
     - name: Ubuntu
       versions:
-        - jammy
-        - noble
-        - resolute
+        - all
     - name: Debian
       versions:
-        - bookworm
-        - trixie
+        - all
   galaxy_tags:
     - traefik
     - reverseproxy

@@ -56,7 +56,9 @@ http:
 
     {{ router_name }}:
       entryPoints:
-        - websecure
+{% for ep in (site.entrypoints | default(['websecure'])) %}
+        - {{ ep }}
+{% endfor %}
       rule: "Host(`{{ cert_fqdns | join('`) || Host(`') }}`)"
       middlewares:
 {% for m in mw.chain %}

@@ -34,6 +34,15 @@ entryPoints:
 {% for ip in traefik_trusted_ips %}
         - "{{ ip }}"
 {% endfor %}
+{% if traefik_cups_enabled %}
+  cups:
+    address: ":{{ traefik_entrypoint_cups_port }}"
+    forwardedHeaders:
+      trustedIPs:
+{% for ip in traefik_trusted_ips %}
+        - "{{ ip }}"
+{% endfor %}
+{% endif %}
 
 providers:
 {% if traefik_provider_docker_enabled %}

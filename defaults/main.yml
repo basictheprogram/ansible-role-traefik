@@ -19,6 +19,8 @@ traefik_compose_dir: /opt/traefik
 traefik_docker_network: traefik_proxy
 traefik_entrypoint_web_port: 80
 traefik_entrypoint_websecure_port: 443
+traefik_cups_enabled: false
+traefik_entrypoint_cups_port: 631
 traefik_trusted_ips:
   - "127.0.0.1/32"
   - "10.0.0.0/8"
@@ -46,31 +48,17 @@ traefik_acme_default_dns_resolvers:
 # One entry per (LE account, DNS provider) pair. Each resolver gets its
 # own acme-<name>.json under traefik_certs_dir. Credentials are injected
 # via env vars matching what the lego provider expects.
+# rfc2136 works with any standards-compliant DNS server that accepts
+# TSIG-authenticated dynamic updates (BIND9, Knot, PowerDNS, etc.).
 traefik_acme_resolvers:
-  ionos:
-    provider: ionos
-    delay_before_check: 120 # IONOS propagation is genuinely slow
+  rfc2136:
+    provider: rfc2136
+    delay_before_check: 120 # allow time for DNS propagation after TXT update
     env:
-      IONOS_API_KEY: "{{ traefik_ionos_api_key }}"
-  route53:
-    provider: route53
-    delay_before_check: 0
-    env:
-      AWS_ACCESS_KEY_ID: "{{ traefik_route53_access_key_id }}"
-      AWS_SECRET_ACCESS_KEY: "{{ traefik_route53_secret_access_key }}"
-      AWS_REGION: us-east-1 # Route53 is global; lego still requires a region
-  cloudflare:
-    provider: cloudflare
-    delay_before_check: 0
-    env:
-      CF_DNS_API_TOKEN: "{{ traefik_cloudflare_api_token }}"
+      RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"
 
 # DNS provider credentials — MUST be vaulted on the consumer side.
-# Only populate resolvers you actually use; unused ones are zero-cost.
-traefik_ionos_api_key: ""
-traefik_route53_access_key_id: ""
-traefik_route53_secret_access_key: ""
-traefik_cloudflare_api_token: ""
+traefik_rfc2136_tsig_api_key: ""
 
 # Wildcard certs and the default cert (see DESIGN.md §Schemas)
 traefik_wildcard_certs: []

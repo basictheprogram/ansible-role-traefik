@@ -5,7 +5,8 @@
 [![Ansible Role](https://img.shields.io/ansible/role/d/realtime/traefik.svg?style=popout-square)](https://galaxy.ansible.com/realtime/traefik)
 
 Deploys [Traefik v3](https://doc.traefik.io/traefik/) as a reverse proxy and
-TLS edge on a single Docker host. DNS-01 ACME (IONOS, Route53, Cloudflare),
+TLS edge on a single Docker host. DNS-01 ACME via RFC 2136 (works with BIND9,
+Knot, PowerDNS, and any provider with a TSIG-authenticated update endpoint),
 wildcard certs, and file-provider dynamic config are the primary use case.
 
 > For full architecture, schemas, and design decisions see [DESIGN.md](DESIGN.md).
@@ -47,36 +48,20 @@ traefik_acme_caserver: ""                  # set to LE staging during bring-up
 # One entry per (LE account, DNS provider) pair. Credentials are written
 # to .env.secrets (0600) and never appear in YAML.
 traefik_acme_resolvers:
-  ionos:
-    provider: ionos
+  rfc2136:
+    provider: rfc2136
     delay_before_check: 120
     env:
-      IONOS_API_KEY: "{{ traefik_ionos_api_key }}"   # vault this
-  route53:
-    provider: route53
-    delay_before_check: 0
-    env:
-      AWS_ACCESS_KEY_ID: "{{ traefik_route53_access_key_id }}"
-      AWS_SECRET_ACCESS_KEY: "{{ traefik_route53_secret_access_key }}"
-      AWS_REGION: us-east-1
-  cloudflare:
-    provider: cloudflare
-    delay_before_check: 0
-    env:
-      CF_DNS_API_TOKEN: "{{ traefik_cloudflare_api_token }}"
+      RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"   # vault this
 
 # Wildcard certs — one entry per cert, bound to a resolver.
 # Every router whose FQDNs fall under main/sans reuses the same cert.
 traefik_wildcard_certs:
   - name: example-com
-    resolver: ionos
+    resolver: rfc2136
     main: "*.portal.example.com"
     sans:
       - "*.dev.example.com"
-  - name: example-org
-    resolver: route53
-    main: "*.portal.example.org"
-    sans: []
 
 traefik_default_cert: example-com    # installed in the TLS default store
 ```
@@ -84,14 +69,15 @@ traefik_default_cert: example-com    # installed in the TLS default store
 #### DNS provider credentials
 
 Credentials referenced by `traefik_acme_resolvers` must be vaulted on
-the consumer side. The role reads them from these variables (only the
-ones whose resolvers are actually used by a cert need to be set):
+the consumer side:
 
-| Variable | Used by | Notes |
-| :--- | :--- | :--- |
-| `traefik_ionos_api_key` | IONOS resolver | DNS-zone write scope. |
-| `traefik_route53_access_key_id`, `traefik_route53_secret_access_key` | Route53 resolver | IAM permissions: `route53:GetChange`, `route53:ChangeResourceRecordSets`, `route53:ListHostedZonesByName`. Scope to the relevant hosted zone. |
-| `traefik_cloudflare_api_token` | Cloudflare resolver | Scoped API token — preferred over the legacy `CF_API_KEY` global key. |
+| Variable | Notes |
+| :--- | :--- |
+| `traefik_rfc2136_tsig_api_key` | TSIG key with DNS-zone write scope on all zones covered by certs using this resolver. |
+
+Additional lego rfc2136 env vars (`RFC2136_NAMESERVER`, `RFC2136_TSIG_KEY`,
+`RFC2136_TSIG_SECRET`, `RFC2136_TSIG_ALGORITHM`) can be added to the
+resolver's `env:` block in `host_vars` if required by the nameserver.
 
 The role assembles every resolver's env vars into a single `0600`,
 root-owned `{{ traefik_compose_dir }}/.env.secrets` file and references
@@ -115,9 +101,10 @@ production certs.
 ### Sites
 
 Set in `host_vars` — one list per proxy host. Each entry produces one
-HTTPS router on the `websecure` entrypoint, one service, and (if
+router (defaulting to the `websecure` entrypoint), one service, and (if
 `allowlist` is non-empty) one `ipAllowList` middleware named
-`<name>-allowlist`.
+`<name>-allowlist`. Override `entrypoints` to route a site through a
+non-standard port such as `cups` (631).
 
 ```yaml
 traefik_sites:
@@ -128,6 +115,8 @@ traefik_sites:
     backend: http://10.0.0.10:8000
     backend_tls_skip_verify: false     # default
     cert: example-com                  # optional; defaults to traefik_default_cert
+    entrypoints:                       # optional; default [websecure]
+      - websecure
     allowlist:                         # optional; references traefik_allowlist_groups
       - corp_office
       - staff_home
@@ -146,6 +135,7 @@ traefik_sites:
 | `backend` | yes | — | Full upstream URL (`http://host:port` or `https://host:port`). |
 | `backend_tls_skip_verify` | no | `false` | When `backend` is `https://`, set `true` to skip TLS verification of the upstream cert (self-signed backend, internal CA Traefik doesn't trust, or hostname mismatch). Ignored for `http://` backends. Maps to `serversTransport.insecureSkipVerify`. Skipping verification removes MitM protection on the proxy-to-backend hop — prefer fixing the cert chain on real networks. |
 | `cert` | no | `traefik_default_cert` | Name of an entry in `traefik_wildcard_certs`. If set, every FQDN must fall under that cert (preflight fails otherwise). |
+| `entrypoints` | no | `[websecure]` | Traefik entryPoint names this router listens on. Override when the site must be reachable on a non-standard port. Example: `[cups]` routes the site through port 631 instead of 443. The named entrypoint must be defined by the role (see `traefik_entrypoint_*` variables). |
 | `allowlist` | no | `[]` | List of names from `traefik_allowlist_groups`. The role unions and dedupes the referenced groups into a single `<name>-allowlist` middleware. |
 | `extra_middlewares` | no | `[]` | Extra middleware names appended after the allowlist and the role's default middlewares. Reference file-provider middlewares with the `@file` suffix. |
 | `pass_host_header` | no | `true` | Forward the original `Host` header to the backend (Traefik default). Set `false` only when the backend insists on receiving its own internal hostname. |
@@ -237,9 +227,42 @@ that one cert. Preflight fails otherwise.
 | `traefik_certs_dir` | `/var/lib/traefik/certs` | ACME JSON storage |
 | `traefik_compose_dir` | `/opt/traefik` | compose.yml and .env.secrets |
 | `traefik_docker_network` | `traefik_proxy` | Docker network created by the role |
+| `traefik_entrypoint_web_port` | `80` | HTTP entrypoint port (redirects to HTTPS) |
+| `traefik_entrypoint_websecure_port` | `443` | HTTPS entrypoint port |
+| `traefik_entrypoint_cups_port` | `631` | IPP/CUPS printing entrypoint port |
 | `traefik_log_level` | `INFO` | Traefik log level |
 | `traefik_verify_healthcheck` | `true` | Wait for container healthcheck after start |
 | `traefik_verify_healthcheck_timeout` | `60` | Seconds to wait before failing |
+
+## CUPS / IPP print server example
+
+CUPS listens on port 631 and uses IPP over HTTPS with a self-signed
+cert. Route it through the dedicated `cups` entrypoint so clients reach
+it on the standard IPP port rather than 443.
+
+```yaml
+# host_vars/<proxy-host>.yml
+traefik_sites:
+  - name: cups
+    fqdns:
+      - cups.corp.example.com
+      - cups2.corp.example.com
+    backend: https://192.168.1.201:631
+    backend_tls_skip_verify: true   # CUPS uses a self-signed cert
+    entrypoints:
+      - cups                        # port 631; defined by traefik_entrypoint_cups_port
+    allowlist:
+      - internal
+      - staff_home
+    pass_host_header: true
+```
+
+No change to `traefik_entrypoint_cups_port` is needed unless your CUPS
+server listens on a non-standard port — the default `631` matches the
+IPP standard. The `backend_tls_skip_verify: true` flag is required when
+the upstream certificate is self-signed or issued by an internal CA that
+Traefik doesn't trust; it enables `insecureSkipVerify` on the generated
+`serversTransport`.
 
 ## Co-located containers (Docker label convention)
 

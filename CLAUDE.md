@@ -125,12 +125,10 @@ and a `BREAKING CHANGE:` footer.
   define the rules. Run `pre-commit run --all-files` before declaring
   work done.
 * **Secrets**: never write a credential into a tracked file. The role
-  expects `traefik_ionos_api_key`, `traefik_route53_access_key_id`,
-  `traefik_route53_secret_access_key`, `traefik_cloudflare_api_token`
-  in vaulted vars on the consumer side; the role itself templates
-  them into a `0600` env file at `{{ traefik_compose_dir }}/.env.secrets`
-  and references it from compose. Use `no_log: true` on any task
-  that touches them.
+  expects `traefik_rfc2136_tsig_api_key` in vaulted vars on the
+  consumer side; the role templates it into a `0600` env file at
+  `{{ traefik_compose_dir }}/.env.secrets` and references it from
+  compose. Use `no_log: true` on any task that touches credentials.
 * **Modules**: prefer FQCNs (`community.docker.docker_compose_v2`,
   `ansible.builtin.template`, `community.docker.docker_network`).
   The `.ansible-lint` rules require it.
@@ -204,8 +202,8 @@ items.
 These are locked in `DESIGN.md`. Don't propose alternatives unless
 the human raises them:
 
-* TLS = Let's Encrypt, **DNS-01 only**, multi-resolver (IONOS,
-  Route53, CloudFlare). No HTTP-01 path is built.
+* TLS = Let's Encrypt, **DNS-01 only**, via RFC 2136 (`rfc2136`
+  lego provider). No HTTP-01 path is built.
 * Container runtime = Docker via
   `community.docker.docker_compose_v2`. No Swarm, no Kubernetes,
   no native systemd binary.
@@ -215,8 +213,8 @@ the human raises them:
   reference (no copy-paste of IPs).
 * Verification = container healthcheck only (`traefik healthcheck
   --ping`). No FQDN probing, no Traefik API introspection.
-* IONOS `delay_before_check: 120` — IONOS propagation is genuinely
-  slow. Don't lower without measurement data.
+* `delay_before_check: 120` on the rfc2136 resolver — DNS propagation
+  after a TSIG TXT update can lag. Don't lower without measurement data.
 * Firewall = upstream Fortigate. Role does not manage host
   firewalls.
 * Network name = `traefik_proxy` (renamed from the legacy `dmz` network),
@@ -232,7 +230,7 @@ linking to the section rather than guessing:
 * Backup of `acme-*.json` files (out of scope for this role; needs
   a separate role / cron job).
 * Multi-region rollout order.
-* IONOS `delay_before_check` post-pilot tuning.
+* `delay_before_check` post-pilot tuning — 120 s is a defensive default; tune down once production propagation lag is measured.
 
 ## Testing locally
 

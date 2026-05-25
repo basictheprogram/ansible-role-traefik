@@ -1,9 +1,9 @@
 ---
-- name: Preflight | traefik_sites is not empty
+- name: Preflight | traefik_sites is a list
   ansible.builtin.assert:
     that:
-      - traefik_sites | length > 0
-    fail_msg: "traefik_sites must contain at least one site entry"
+      - traefik_sites | type_debug == 'list'
+    fail_msg: "traefik_sites must be a list (can be empty when using only co-located containers)"
 
 - name: Preflight | traefik_acme_email required when ACME enabled
   ansible.builtin.assert:

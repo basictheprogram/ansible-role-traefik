@@ -175,6 +175,7 @@ traefik_compose_dir: /opt/traefik
 traefik_docker_network: traefik_proxy
 traefik_entrypoint_web_port: 80
 traefik_entrypoint_websecure_port: 443
+traefik_entrypoint_cups_port: 631           # IPP / CUPS printing endpoint
 traefik_trusted_ips:
   - "127.0.0.1/32"
   - "10.0.0.0/8"
@@ -206,32 +207,14 @@ traefik_acme_default_dns_resolvers:
 # Defaults below are sensible per-provider starting points; tune per
 # deployment via group_vars.
 traefik_acme_resolvers:
-  ionos:
-    provider: ionos
-    delay_before_check: 120              # IONOS propagation is very slow
+  rfc2136:
+    provider: rfc2136
+    delay_before_check: 120              # allow time for DNS propagation after TXT update
     env:
-      IONOS_API_KEY: "{{ traefik_ionos_api_key }}"
-  route53:
-    provider: route53
-    delay_before_check: 0
-    env:
-      AWS_ACCESS_KEY_ID: "{{ traefik_route53_access_key_id }}"
-      AWS_SECRET_ACCESS_KEY: "{{ traefik_route53_secret_access_key }}"
-      AWS_REGION: us-east-1              # Route53 is global; lego still wants a region
-  cloudflare:
-    provider: cloudflare
-    delay_before_check: 0
-    env:
-      CF_DNS_API_TOKEN: "{{ traefik_cloudflare_api_token }}"
+      RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"
 
 # DNS provider credentials — MUST be vaulted; never set in defaults.
-# Only populate the ones you actually use; unused resolvers can stay
-# defined here at zero cost (Traefik only contacts a resolver when a
-# cert references it).
-traefik_ionos_api_key: ""
-traefik_route53_access_key_id: ""
-traefik_route53_secret_access_key: ""
-traefik_cloudflare_api_token: ""
+traefik_rfc2136_tsig_api_key: ""
 
 # Wildcard certs and the default cert (see Schemas).
 traefik_wildcard_certs: []
@@ -285,6 +268,8 @@ traefik_sites:
       - staff_home
       - internal_network
       - partner_extra
+    entrypoints:                        # optional; default [websecure]
+      - websecure                     # override to route non-HTTPS traffic
     extra_middlewares: []             # optional; appended after allowlist
     pass_host_header: true            # optional, default true
     servers_transport: null           # optional override; null = default
@@ -296,6 +281,12 @@ Notes:
 * `security-headers` is applied automatically to every site via
   `traefik_default_middlewares` (see below). Omit from per-site
   `extra_middlewares` unless you want it twice.
+* `entrypoints` defaults to `[websecure]`. Override when the site must
+  be reachable on a non-standard port. For example, a CUPS/IPP print
+  server listening on port 631 uses `entrypoints: [cups]`. The named
+  entrypoint must exist in `traefik.yml` (i.e. be one of the role's
+  configured entryPoints); referencing an undefined name silently drops
+  routing.
 * Cert resolution: for each FQDN, the role finds the cert spec from
   `traefik_wildcard_certs` whose `main` or `sans` covers it. If
   `cert:` is set on the site, every FQDN must fall under that cert;
@@ -339,25 +330,21 @@ fall under this entry's `main` + `sans` reuses the same cert.
 ```yaml
 traefik_wildcard_certs:
   - name: example-com              # internal id; referenced by sites
-    resolver: ionos                # zones for these domains live at IONOS
+    resolver: rfc2136              # resolver name must match a key in traefik_acme_resolvers
     main: "*.portal.example.com"
     sans:
       - "*.dev.example.com"
       - "www.link.example.com"
-  - name: example-org
-    resolver: route53              # *.example.org zone is at AWS Route53
-    main: "*.portal.example.org"
-    sans: []
 
 traefik_default_cert: example-com  # cert installed in TLS default store
 ```
 
 Notes:
 
-* **All domains in a single cert spec must live in zones the bound
-  resolver's DNS provider controls.** A cert can't span IONOS and
-  Route53 (lego doesn't multi-provider one challenge), so registered
-  domains hosted at different providers need separate cert specs.
+* **All domains in a single cert spec must be resolvable via the bound
+  resolver's DNS server.** A cert can't span zones served by different
+  RFC 2136 nameservers in a single order; domains hosted on different
+  DNS servers need separate cert specs with separate resolvers.
 * The cert named in `traefik_default_cert` is installed in the default
   TLS store. Routers that don't pin a `cert:` get this one — useful for
   co-located docker-labeled containers that don't need to know cert
@@ -443,48 +430,25 @@ the new domain set.
 
 ## TLS / ACME
 
-Multiple ACME resolvers, all backed by Let's Encrypt, each bound to a
-different DNS provider via lego. Built-in support for **IONOS**,
-**AWS Route53**, and **CloudFlare**; any other lego DNS provider can
-be added by appending an entry to `traefik_acme_resolvers`. Each
-wildcard cert spec names its resolver, so one host can serve cert sets
-issued by different providers concurrently.
+DNS-01 ACME via lego's `rfc2136` provider. RFC 2136 (Dynamic DNS
+Updates) is supported by any standards-compliant DNS server — BIND9,
+Knot, PowerDNS — and by most managed providers that expose a TSIG-
+authenticated update endpoint. One resolver entry per (LE account,
+nameserver) pair; each gets its own `acme-<name>.json` file.
 
 Provider configuration (rendered into static config, one block per
 resolver):
 
 ```yaml
 certificatesResolvers:
-  ionos:
+  rfc2136:
     acme:
       email: "{{ traefik_acme_email }}"
-      storage: "{{ traefik_certs_dir }}/acme-ionos.json"
+      storage: "{{ traefik_certs_dir }}/acme-rfc2136.json"
       {% if traefik_acme_caserver %}caServer: "{{ traefik_acme_caserver }}"{% endif %}
       dnsChallenge:
-        provider: ionos
+        provider: rfc2136
         delayBeforeCheck: 120
-        resolvers:
-          - "1.1.1.1:53"
-          - "8.8.8.8:53"
-  route53:
-    acme:
-      email: "{{ traefik_acme_email }}"
-      storage: "{{ traefik_certs_dir }}/acme-route53.json"
-      {% if traefik_acme_caserver %}caServer: "{{ traefik_acme_caserver }}"{% endif %}
-      dnsChallenge:
-        provider: route53
-        delayBeforeCheck: 0
-        resolvers:
-          - "1.1.1.1:53"
-          - "8.8.8.8:53"
-  cloudflare:
-    acme:
-      email: "{{ traefik_acme_email }}"
-      storage: "{{ traefik_certs_dir }}/acme-cloudflare.json"
-      {% if traefik_acme_caserver %}caServer: "{{ traefik_acme_caserver }}"{% endif %}
-      dnsChallenge:
-        provider: cloudflare
-        delayBeforeCheck: 0
         resolvers:
           - "1.1.1.1:53"
           - "8.8.8.8:53"
@@ -497,30 +461,25 @@ Credentials:
   `{{ traefik_compose_dir }}/.env.secrets` containing every env entry
   from every defined resolver, and the compose `env_file:` references
   it. Compose YAML never contains secrets directly.
-* Per-provider env keys (lego conventions):
-  * IONOS — `IONOS_API_KEY`
-  * Route53 — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-    `AWS_REGION`. IAM permissions: `route53:GetChange`,
-    `route53:ChangeResourceRecordSets`,
-    `route53:ListHostedZonesByName`. Scope the key to the specific
-    hosted zone via an IAM policy condition.
-  * CloudFlare — `CF_DNS_API_TOKEN` (scoped token; preferred over
-    the older `CF_API_EMAIL` + `CF_API_KEY` global key path).
-* All credentials have DNS-zone write scope on at least one zone.
-  Treat as high-blast-radius: vaulted vars file per controller,
+* RFC 2136 env key: `RFC2136_TSIG_API_KEY`. The TSIG key must have
+  DNS-zone write scope on all zones covered by certs using this
+  resolver. Treat as high-blast-radius: store in a vaulted vars file,
   preflight uses `no_log: true` when asserting presence.
+* Additional lego rfc2136 env vars (set in the resolver's `env:` block
+  if your nameserver requires them): `RFC2136_NAMESERVER`,
+  `RFC2136_TSIG_KEY`, `RFC2136_TSIG_SECRET`, `RFC2136_TSIG_ALGORITHM`.
 
-IONOS-specific tuning:
+RFC 2136 propagation tuning:
 
-* `delay_before_check: 120` is the role default. IONOS's authoritative
-  servers can lag 60–120 s behind a TXT update from their API. Setting
-  this lower causes "no DNS record found" challenge failures and burns
-  LE issuance attempts. If observed propagation is consistently
-  faster, dial it down per host or per resolver.
+* `delay_before_check: 120` is the role default. After lego submits
+  the TXT update via TSIG, the authoritative server may not yet have
+  propagated to public resolvers. Setting this too low causes "no DNS
+  record found" failures and burns LE issuance attempts.
 * `traefik_acme_default_dns_resolvers` (1.1.1.1 / 8.8.8.8) is what
-  Traefik uses to *check* propagation. These ignore IONOS's caches,
-  so propagation has to reach the public DNS edge before the check
-  passes — which is exactly why the delay is necessary.
+  Traefik uses to *check* propagation. Propagation must reach the
+  public DNS edge before the check passes. Tune `delay_before_check`
+  per resolver in `host_vars` if your nameserver is consistently
+  faster or slower.
 
 Storage and lifecycle:
 
@@ -556,13 +515,11 @@ Operational properties of the DNS-01 switch:
 
 Credential rotation policy:
 
-* **IONOS**: rotate on suspicion only (suspected leak, staff
-  departure with knowledge, audit finding). No scheduled cadence.
-  Procedure: edit vaulted var, re-run role; new key is in effect on
-  the next renewal cycle without restart.
-* Route53 / CloudFlare: same policy unless a higher-up control
-  (org IAM rotation policy, key-management compliance requirement)
-  dictates otherwise.
+* **RFC 2136 TSIG key**: rotate on suspicion only (suspected leak,
+  staff departure with knowledge, audit finding). No scheduled cadence.
+  Procedure: generate a new TSIG key on the nameserver, update the
+  vaulted var, re-run role; new key is in effect on the next renewal
+  cycle without a container restart.
 
 Backup of `acme-*.json` files: out of scope for this role. Recommended
 a separate role / cron copy off-box daily; with wildcards in play, one
@@ -687,11 +644,8 @@ inventory/
 `group_vars/all/traefik.yml` defines `traefik_allowlist_groups`,
 `traefik_wildcard_certs`, `traefik_default_cert`, and any org-wide
 overrides. `vault_traefik.yml` holds DNS provider credentials —
-`traefik_ionos_api_key`, `traefik_route53_access_key_id` /
-`traefik_route53_secret_access_key`, `traefik_cloudflare_api_token` —
-plus `traefik_acme_email` if you want it private. Only the credentials
-for resolvers actually referenced by a cert need to be populated; the
-others can stay empty. Each `host_vars/proxy-*.yml` contains
+`traefik_rfc2136_tsig_api_key` — plus `traefik_acme_email` if you
+want it private. Each `host_vars/proxy-*.yml` contains
 `traefik_sites` for that VM and may override the default cert when the
 VM serves only non-default domains.
 
@@ -720,8 +674,8 @@ Step-by-step:
    `traefik_acme_caserver` to LE staging.
 3. Run the role. Verify: container healthcheck green, each
    `acme-<resolver>.json` populated with its wildcard, every site
-   responds with the expected (staging) cert chain. IONOS resolver may
-   take 1–3 minutes per issuance attempt due to
+   responds with the expected (staging) cert chain. The rfc2136
+   resolver may take 1–3 minutes per issuance attempt due to
    `delay_before_check: 120`.
 4. Cross-check generated routes against the existing hand-managed tree.
    Intentional behavior changes to communicate to stakeholders:
@@ -736,19 +690,20 @@ Step-by-step:
 
 ### Example cert layout for a dual-TLD deployment
 
-When DNS zones for `.com` and `.org` are hosted at different providers
-(e.g. IONOS for `.com`, Route53 for `.org`), use two cert specs:
+When DNS zones are served by different nameservers (e.g. `.com` on one
+BIND9 instance, `.org` on another), use two cert specs with separate
+resolvers pointing at each nameserver:
 
 ```yaml
 traefik_wildcard_certs:
   - name: example-com
-    resolver: ionos
+    resolver: rfc2136-com        # resolver key defined in traefik_acme_resolvers
     main: "*.portal.example.com"
     sans:
       - "*.dev.example.com"
       - "www.link.example.com"
   - name: example-org
-    resolver: route53
+    resolver: rfc2136-org        # separate resolver for the .org nameserver
     main: "*.portal.example.org"
     sans: []
 
@@ -818,6 +773,21 @@ traefik_sites:
       - corp_office
       - staff_home
       - internal_network
+
+  # CUPS / IPP print server — routed on :631 rather than :443.
+  # The print server uses a self-signed cert, so backend_tls_skip_verify
+  # is required. entrypoints overrides the default [websecure] so the
+  # router listens on the cups entryPoint (port 631).
+  - name: cups
+    fqdns:
+      - cups.corp.example.com
+    backend: https://192.168.1.201:631
+    backend_tls_skip_verify: true
+    entrypoints:
+      - cups
+    allowlist:
+      - internal_network
+      - staff_home
 ```
 
 ---
@@ -834,11 +804,11 @@ traefik_sites:
   New regions need their own credentials scoped to that region's zones
   (or shared org credentials with zone-level write to the relevant
   zones).
-* **IONOS `delay_before_check` measurement** — 120 s is a defensive
-  default. After the role is in production, capture actual TXT
-  propagation lag from a few issuance/renewal cycles and tune down
-  if measurements consistently show faster propagation. Each saved
-  second is shaved off every renewal.
+* **`delay_before_check` measurement** — 120 s is a defensive default.
+  After the role is in production, capture actual TXT propagation lag
+  from a few issuance/renewal cycles and tune down if measurements
+  consistently show faster propagation. Each saved second is shaved
+  off every renewal.
 
 ## Future work (not built now)
 

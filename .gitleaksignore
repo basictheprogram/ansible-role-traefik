@@ -1,0 +1,3 @@
+# False positives — documentation strings, not real secrets.
+# RFC2136_TSIG_API_KEY on this line is an env-var name, not a key value.
+DESIGN.md:generic-api-key:464

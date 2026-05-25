@@ -9,6 +9,9 @@ services:
     ports:
       - "{{ traefik_entrypoint_web_port }}:{{ traefik_entrypoint_web_port }}"
       - "{{ traefik_entrypoint_websecure_port }}:{{ traefik_entrypoint_websecure_port }}"
+{% if traefik_cups_enabled %}
+      - "{{ traefik_entrypoint_cups_port }}:{{ traefik_entrypoint_cups_port }}"
+{% endif %}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /etc/localtime:/etc/localtime:ro
