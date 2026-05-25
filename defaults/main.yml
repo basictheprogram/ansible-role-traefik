@@ -1,6 +1,6 @@
 ---
 # Image and runtime
-traefik_image: "traefik:v3.7"
+traefik_image: "traefik:v3.7.1"
 traefik_container_name: traefik
 traefik_restart_policy: unless-stopped
 traefik_check_new_version: true

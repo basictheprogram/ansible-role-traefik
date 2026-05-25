@@ -1,10 +1,9 @@
-# Claude Code project notes — ansible-role-traefik
+# Claude Code project notes — realtime.traefik
 
-This is an Ansible role that deploys Traefik v3 as a reverse proxy /
-TLS edge at regional offices. Forked from arillso/ansible.traefik
-(itself a fork of sbaerlocher/ansible.traefik), being modernized for
-`ansible-core` 2.20, Traefik v3, Debian 12/13, Ubuntu 22.04/24.04,
-and a multi-region deployment model.
+Deploys [Traefik v3](https://doc.traefik.io/traefik/) as a reverse proxy and
+TLS edge on a single Docker host. DNS-01 ACME via RFC 2136 (works with BIND9,
+Knot, PowerDNS, and any provider with a TSIG-authenticated update endpoint),
+wildcard certs, and file-provider dynamic config are the primary use case.
 
 ---
 
@@ -87,117 +86,55 @@ Strong success criteria allow independent verification. Weak criteria
 
 ---
 
-## Source of truth
+## Role-specific notes
 
-**`DESIGN.md`** in this repo is the authoritative spec for the new
-role. Read it before making any non-trivial change. Variable names,
-schemas, file layout, bootstrap sequence, TLS strategy, and migration
-plan all live there.
+### Source of truth
 
-If something in the code disagrees with `DESIGN.md`, `DESIGN.md` is
-right unless explicitly told otherwise — flag the discrepancy and
-ask before "fixing" the design to match the code.
+`DESIGN.md` is the authoritative spec. Read it before any non-trivial
+change. If code disagrees with `DESIGN.md`, `DESIGN.md` is right —
+flag the discrepancy and ask before fixing the design to match the code.
 
-## Repo state
+### Design notes
 
-The code currently in `tasks/`, `defaults/`, `templates/` is inherited
-upstream (Traefik v2-era, HTTP-01, single-host model). It is being
-**replaced**, not incrementally edited:
+`DESIGN.md` covers: public interface variable schemas, static config
+layout, TLS / ACME strategy (DNS-01 only via RFC 2136), dynamic config
+file-provider structure, site routing schema, wildcard cert schema,
+allowlist group model, inventory layout, bootstrap sequence, migration
+path from hand-managed Compose, and multi-region deployment model.
 
-* The new task layout is `preflight.yml`, `install.yml`,
-  `network.yml`, `sites.yml`, `service.yml`, `verify.yml`. Legacy
-  `tasks/0_config.yml` and `tasks/1_setup.yml` get removed once their
-  replacements land.
-* `defaults/main.yml` is being replaced wholesale with the public
-  interface block from `DESIGN.md` — old names (`traefik_qs_*`,
-  `traefik_confkey_*`) are not preserved.
+Key structural points:
 
-This is a breaking change to the role's public interface. Per the
-commit conventions below, breaking-change commits get the `!` marker
-and a `BREAKING CHANGE:` footer.
+* Traefik runs as a Docker Compose service. Static config is rendered
+  to `{{ traefik_data_dir }}/traefik.yml`; dynamic config lives under
+  `{{ traefik_dynamic_dir }}/`. Compose and `.env.secrets` live in
+  `{{ traefik_compose_dir }}/`.
+* Sites are defined in `host_vars` as a `traefik_sites` list. Each
+  entry produces a router, a service, and (if allowlisted) an
+  `ipAllowList` middleware in the dynamic file provider.
+* Wildcard certs are declared in `traefik_wildcard_certs` and bound to
+  a named resolver. Sites reference certs by name or inherit the
+  default. Sites whose FQDNs span multiple cert specs emit one router
+  per cert (named `<site>-<cert>`).
+* The `traefik_proxy` Docker network is created by the role. All
+  co-located containers that need routing must join it.
 
-## Conventions
+### Secrets
 
-* **Commits**: follow the commit message guide in this file exactly.
-  Conventional Commits, imperative mood, bodies wrapped at 72,
-  asterisk bullets.
-* **Lint**: `.ansible-lint`, `.yamllint`, `.pre-commit-config.yaml`
-  define the rules. Run `pre-commit run --all-files` before declaring
-  work done.
-* **Secrets**: never write a credential into a tracked file. The role
-  expects `traefik_rfc2136_tsig_api_key` in vaulted vars on the
-  consumer side; the role templates it into a `0600` env file at
-  `{{ traefik_compose_dir }}/.env.secrets` and references it from
-  compose. Use `no_log: true` on any task that touches credentials.
-* **Modules**: prefer FQCNs (`community.docker.docker_compose_v2`,
-  `ansible.builtin.template`, `community.docker.docker_network`).
-  The `.ansible-lint` rules require it.
-* **Idempotency**: every task should be safe to re-run. Templates
-  use `validate:` where Traefik provides a syntax checker; otherwise
-  rely on Traefik's `watch: true` reload + the verify step to catch
-  bad output.
+Role-specific secret variable names:
 
-## Implementation order
+* `traefik_rfc2136_tsig_api_key` — TSIG key with DNS-zone write scope
+  on all zones covered by certs using this resolver. Must be vaulted
+  on the consumer side; never set in `defaults/`. The role templates
+  it into `{{ traefik_compose_dir }}/.env.secrets` (0600, root-owned).
+  Use `no_log: true` on any task that touches it.
 
-Work one section at a time. Each item below = one focused session
-and one commit. Stop and verify (lint + molecule converge) between
-items.
+### Commit scopes
 
-1. `meta/main.yml` — bump `min_ansible_version` to 2.20, update
-   `platforms` (Debian 12/13, Ubuntu 22.04/24.04), galaxy metadata.
-2. `defaults/main.yml` — replace with the public interface block
-   from `DESIGN.md` §"Public interface".
-3. `vars/main.yml` — internal constants for the org-wide middleware
-   library (`security-headers`, `compress`) per `DESIGN.md`
-   §"Org-wide middleware library".
-4. `templates/traefik.yml.j2` — static config per `DESIGN.md`
-   §"Static config" and §"TLS / ACME". Renders one
-   `certificatesResolvers` block per entry in
-   `traefik_acme_resolvers`.
-5. `templates/compose.yml.j2` — container definition with
-   healthcheck, journald logging, `env_file:` reference to
-   `.env.secrets`, ulimits, memory limits per the defaults block.
-6. `templates/dynamic/middlewares.yml.j2` — org-wide library plus
-   one `<site>-allowlist` middleware per site with a non-empty
-   allowlist (union of referenced groups, deduped, comments
-   preserved).
-7. `templates/dynamic/sites.yml.j2` — routers + services +
-   `serversTransports`. Implements the multi-cert split rule from
-   `DESIGN.md` §"`traefik_wildcard_certs`" notes (sites whose FQDNs
-   span multiple cert specs emit one router per cert, named
-   `<site>-<cert>`).
-8. `templates/dynamic/tls.yml.j2` — default store binding +
-   `tls.options` (modern profile: TLS 1.2/1.3, restricted ciphers).
-9. `tasks/preflight.yml` — assertions per `DESIGN.md` §"Bootstrap &
-   lifecycle" step 1. Cred presence asserts use `no_log: true`.
-10. `tasks/install.yml` — directories, render compose + traefik.yml,
-    write `.env.secrets`.
-11. `tasks/network.yml` — `community.docker.docker_network` for
-    `traefik_proxy`.
-12. `tasks/sites.yml` — render the three dynamic templates.
-13. `tasks/service.yml` — `community.docker.docker_compose_v2` up.
-14. `tasks/verify.yml` — poll `docker inspect` until healthcheck
-    `healthy`, fail after `traefik_verify_healthcheck_timeout`.
-15. `tasks/main.yml` — orchestrate the above; remove legacy
-    includes.
-16. `handlers/main.yml` — `restart traefik` triggered only by
-    `compose.yml` or `traefik.yml` changes (dynamic config is
-    hot-reloaded).
-17. Delete `tasks/0_config.yml` and `tasks/1_setup.yml` and any now-
-    orphaned templates from the upstream fork.
-18. `molecule/default/` — update `molecule.yml` for the platform
-    matrix (Debian 12, Debian 13, Ubuntu 22.04, Ubuntu 24.04) and
-    `playbook.yml` to provide minimal valid `traefik_sites`,
-    `traefik_acme_resolvers`, and `traefik_wildcard_certs`. ACME
-    against LE staging or use `traefik_acme_enabled: false` for
-    pure-template tests.
-19. `README.md` — usage examples mirroring `DESIGN.md` schemas, the
-    docker-label convention for co-located containers, a pointer to
-    `DESIGN.md` for full architecture.
-20. `.travis.yml` → GitHub Actions (separate effort; flag when
-    ready, don't bundle into the role refactor).
+Role-specific subsystem scopes: `static-config`, `dynamic-config`,
+`acme`, `tls`, `middlewares`, `routers`, `entrypoints`, `compose`,
+`preflight`, `install`, `network`, `sites`, `service`, `verify`
 
-## Settled decisions — don't re-litigate
+### Settled decisions
 
 These are locked in `DESIGN.md`. Don't propose alternatives unless
 the human raises them:
@@ -215,14 +152,13 @@ the human raises them:
   --ping`). No FQDN probing, no Traefik API introspection.
 * `delay_before_check: 120` on the rfc2136 resolver — DNS propagation
   after a TSIG TXT update can lag. Don't lower without measurement data.
-* Firewall = upstream Fortigate. Role does not manage host
-  firewalls.
-* Network name = `traefik_proxy` (renamed from the legacy `dmz` network),
-  created by the role.
+* Firewall = upstream Fortigate. Role does not manage host firewalls.
+* Network name = `traefik_proxy` (renamed from the legacy `dmz`
+  network), created by the role.
 * Per-resolver `acme-<name>.json` storage (one file per resolver,
   not one shared file).
 
-## Open questions tracked in DESIGN.md
+### Open questions
 
 If a task touches one of these, leave a `# TODO(open-q):` comment
 linking to the section rather than guessing:
@@ -230,7 +166,91 @@ linking to the section rather than guessing:
 * Backup of `acme-*.json` files (out of scope for this role; needs
   a separate role / cron job).
 * Multi-region rollout order.
-* `delay_before_check` post-pilot tuning — 120 s is a defensive default; tune down once production propagation lag is measured.
+* `delay_before_check` post-pilot tuning — 120 s is a defensive
+  default; tune down once production propagation lag is measured.
+
+### Implementation order
+
+Work one section at a time. Each item = one focused session and one
+commit. Stop and verify between items.
+
+Items marked ✅ are complete and should not be re-opened unless a
+specific regression or design change requires it.
+
+1. ✅ `meta/main.yml` — min_ansible_version 2.20, platforms all
+   (Ubuntu, Debian), galaxy metadata.
+2. ✅ `defaults/main.yml` — public interface block per DESIGN.md.
+3. ✅ `vars/main.yml` — internal middleware library constants
+   (`security-headers`, `compress`).
+4. ✅ `templates/traefik.yml.j2` — static config; one
+   `certificatesResolvers` block per entry in `traefik_acme_resolvers`.
+5. ✅ `templates/compose.yml.j2` — container definition with
+   healthcheck, journald logging, `env_file:` reference, ulimits,
+   memory limits, optional CUPS port.
+6. ✅ `templates/dynamic/middlewares.yml.j2` — org-wide library plus
+   per-site `<name>-allowlist` middleware.
+7. ✅ `templates/dynamic/sites.yml.j2` — routers + services +
+   `serversTransports`; multi-cert split; per-site `entrypoints`.
+8. ✅ `templates/dynamic/tls.yml.j2` — default store binding +
+   `tls.options` (TLS 1.2/1.3, restricted ciphers).
+9. ✅ `templates/env.secrets.j2` — `.env.secrets` rendered from
+   resolver env blocks.
+10. ✅ `tasks/preflight.yml` — assertions; cred presence uses
+    `no_log: true`.
+11. ✅ `tasks/install.yml` — directories, render compose +
+    traefik.yml, write `.env.secrets`.
+12. ✅ `tasks/network.yml` — `community.docker.docker_network` for
+    `traefik_proxy`.
+13. ✅ `tasks/sites.yml` — render the three dynamic templates.
+14. ✅ `tasks/service.yml` — `community.docker.docker_compose_v2` up.
+15. ✅ `tasks/verify.yml` — poll `docker inspect` until healthcheck
+    `healthy`.
+16. ✅ `tasks/main.yml` — orchestrates the above; legacy includes
+    removed.
+17. ✅ `handlers/main.yml` — `restart traefik` handler.
+18. ✅ `molecule/default/` — platform matrix (Debian 12/13, Ubuntu
+    22.04/24.04/26.04); testinfra verifier.
+19. ✅ `README.md` — usage examples, docker-label convention, pointer
+    to DESIGN.md.
+20. ✅ `.github/workflows/ci.yml` — GitHub Actions CI + Galaxy
+    import on semver tag.
+21. Add molecule scenario for preflight failure cases (bad resolver
+    reference, uncovered FQDN).
+22. Add molecule scenario for multi-cert split (site FQDNs spanning
+    two cert specs).
+23. Add molecule scenario for `traefik_acme_enabled: true` with a
+    mock RFC 2136 resolver.
+24. Expand `molecule/default/tests/test_default.py` — verify dynamic
+    config files are rendered, secrets file has mode 0600, container
+    is healthy.
+
+### Consumer side notes
+
+This role is consumed from the playbooks repo (not this repo).
+Inventory layout, vault structure, and the proxy host's
+`traefik_sites` mapping are described in `DESIGN.md` §"Inventory
+layout" and §"Migration: hand-managed Docker Compose → role-managed".
+When asked about consumer-side changes, ask which inventory repo to
+operate on — it is not in this directory tree.
+
+---
+
+## Conventions
+
+* **Commits**: follow the commit message guide in this file exactly.
+  Conventional Commits, imperative mood, bodies wrapped at 72,
+  asterisk bullets.
+* **Lint**: `.ansible-lint`, `.yamllint`, `.pre-commit-config.yaml`
+  define the rules. Run `pre-commit run --all-files` before declaring
+  work done.
+* **Secrets**: never write a credential into a tracked file. Vault
+  secrets are consumed on the consumer side; the role templates them
+  into config files with restricted permissions. Use `no_log: true`
+  on any task that touches them.
+* **Modules**: prefer FQCNs (`ansible.builtin.template`,
+  `community.docker.docker_compose_v2`, `community.docker.docker_network`).
+  The `.ansible-lint` rules require it.
+* **Idempotency**: every task should be safe to re-run.
 
 ## Testing locally
 
@@ -248,72 +268,24 @@ verifier. Tests are written in Python and live in:
 
     molecule/default/tests/test_default.py
 
-### Why testinfra over the Ansible verifier
-
-The Ansible verifier expresses assertions as `register` / `assert`
-YAML pairs — verbose and awkward for anything involving string parsing,
-regex, or negative assertions. testinfra tests are ordinary pytest
-functions: `host` is a fixture that connects to the converged instance,
-and assertions are plain Python. Prefer testinfra for all new verify
-work.
-
-### Host fixture type
-
 Import `Host` from `testinfra.host` for type annotations, guarded by
-`TYPE_CHECKING` so it is not imported at runtime (ruff TC002):
+`TYPE_CHECKING`:
 
     from __future__ import annotations
-
-    from typing import TYPE_CHECKING, Any
-
+    from typing import TYPE_CHECKING
     if TYPE_CHECKING:
         from testinfra.host import Host
 
     def test_example(host: Host) -> None:
         assert host.file("/etc/traefik").exists
 
-All test functions must be annotated with `host: Host` and return
-`-> None`. Helper functions that accept a host should use `Host` as
-well. Use `from typing import Any` for YAML-parsed dict/list return
-types.
-
-### Key host fixture methods used in this role
-
-* `host.file(path)` — inspect a file: `.exists`, `.is_directory`,
-  `.mode`, `.user`, `.group`, `.content_string`
-* `host.run(cmd)` — run a shell command: `.rc`, `.stdout`, `.stderr`
-* `host.docker(name)` — inspect a Docker container: `.is_running`
-
-### Installing test dependencies
-
-    pip install -r molecule/default/requirements.txt
-
-Contains `pytest-testinfra` and `PyYAML`.
-
-### Test coverage approach
-
-There is no automated coverage tool for Ansible task branches — you
-build coverage by writing scenarios that exercise different variable
-combinations. The `default` scenario covers the happy path with ACME
-disabled. Add named scenarios under `molecule/` for:
-
-* Preflight failure cases (bad resolver reference, uncovered FQDN)
-* Multi-cert split (site FQDNs spanning two cert specs)
-* `traefik_acme_enabled: true` with a mock resolver (future)
-
-## Working with the consumer side
-
-This role is consumed from the user's playbooks repo (not in this
-repo). Inventory layout, vault structure, and the proxy host's
-`traefik_sites` mapping are described in `DESIGN.md` §"Inventory
-layout" and §"Migration: existing host → role-managed". When the
-human asks about consumer-side changes, ask which inventory repo to
-operate on — it's not in this directory tree.
+All test functions must be annotated `host: Host` and return `-> None`.
+Install dependencies: `pip install -r molecule/default/requirements.txt`.
 
 ## When in doubt
 
-Read `DESIGN.md`, then ask. The schemas and decisions there came
-out of a multi-round design conversation; they're load-bearing.
+Read `DESIGN.md`, then ask. The schemas and decisions there are
+load-bearing.
 
 ---
 
@@ -346,8 +318,8 @@ Pay special attention to:
 * Changes to `defaults/main.yml` — these define the role's public interface
 * Changes to handler names, task names, and tags — consumers may pin to them
 * Changes to template variables that consumers override
-* Changes to Traefik static or dynamic configuration that affect routing,
-  TLS, or service discovery
+* Changes to config or env file templates that affect service behavior
+* Changes to `meta/main.yml` — galaxy metadata, min Ansible version, platforms
 
 If multiple files are modified, identify the **dominant intent** rather
 than listing every file.
@@ -368,20 +340,18 @@ Use Conventional Commits:
 
 ### Step 4 — Determine scope
 
-Infer a scope from the role layout or Traefik subsystem.
+Infer a scope from the role layout or the subsystem being changed.
 
 Common Ansible role scopes: `tasks`, `handlers`, `templates`,
-`defaults`, `vars`, `meta`, `molecule`, `docker`, `systemd`.
+`defaults`, `vars`, `meta`, `molecule`, `docker`.
 
-Common Traefik subsystem scopes: `static-config`, `dynamic-config`,
-`providers`, `entrypoints`, `routers`, `middlewares`, `services`,
-`tls`, `acme`, `dashboard`, `api`, `metrics`, `tracing`, `logs`,
-`plugins`.
+Role-specific subsystem scopes: `static-config`, `dynamic-config`,
+`acme`, `tls`, `middlewares`, `routers`, `entrypoints`, `compose`,
+`preflight`, `install`, `network`, `sites`, `service`, `verify`
 
-Only include a scope when it adds clarity. Prefer the Traefik
-subsystem scope for feature-driven changes (e.g., `feat(acme): ...`)
-and the role-layout scope for structural changes
-(e.g., `refactor(tasks): ...`).
+Only include a scope when it adds clarity. Prefer a subsystem scope
+for feature-driven changes (e.g., `feat(acme): ...`) and a role-layout
+scope for structural changes (e.g., `refactor(tasks): ...`).
 
 ### Step 5 — Write the commit message
 
@@ -398,16 +368,15 @@ Format exactly as:
 * Use **imperative mood** ("Add", "Fix", "Update", "Remove")
 * Maximum **50 characters**
 * Describe the **result**, not the implementation
-* Prefer Traefik or Ansible terminology over generic phrasing
-  (e.g., "Add ACME HTTP-01 resolver", not "Add new variable")
+* Prefer role-specific or Ansible terminology over generic phrasing
 
 **Body rules** (required):
 
 Explain **why the change was made**, focusing on:
 
-* What deployment scenario or upstream Traefik behavior motivated it
+* What deployment scenario or upstream behavior motivated it
 * What downstream role consumers need to know to upgrade safely
-* Any Traefik or Ansible version constraints involved
+* Any Ansible version constraints involved
 
 When helpful, summarize key changes using bullet points.
 
@@ -417,32 +386,23 @@ When helpful, summarize key changes using bullet points.
 * Nested bullets indented with two spaces
 * No Markdown formatting of any kind
 
-Example:
-
-    * Add file provider configuration template
-    * Wire provider into static config and reload handler
-      * Triggers Traefik reload via systemd on change
-
-**Ansible-specific expectations:**
+**Ansible role expectations:**
 
 * Call out new, renamed, or removed default variables
 * Note when handler names, tag names, or public task names change
 * Mention idempotency improvements when relevant
-* Reference supported platforms when adding OS- or
-  distribution-specific tasks
-* Flag changes to `meta/main.yml` (galaxy metadata, role
-  dependencies, minimum Ansible version, supported platforms)
+* Reference supported platforms when adding OS-specific tasks
+* Flag changes to `meta/main.yml` (min Ansible version, platforms)
 * Note molecule scenario additions or removals
 
 **Traefik-specific expectations:**
 
-* Distinguish between **static configuration** (requires restart)
-  and **dynamic configuration** (hot-reloaded by the file provider)
+* Distinguish between **static configuration** (requires restart) and
+  **dynamic configuration** (hot-reloaded by the file provider)
 * Note the minimum Traefik version when using new directives
 * Call out new providers, middlewares, routers, or entrypoints by name
 * Highlight TLS or ACME changes that affect certificate issuance or
   renewal
-* Mention dashboard or API exposure changes — these have security impact
 
 ### Breaking changes
 
@@ -451,10 +411,9 @@ A change is breaking when it:
 * Renames or removes a default variable
 * Renames or removes a handler, tag, or public task name
 * Changes a default value in a way that alters runtime behavior
-* Drops support for a Traefik or Ansible version
+* Drops support for an Ansible version or OS platform
 * Restructures generated configuration in a way consumers' overrides
   cannot accommodate
-* Changes dashboard, API, or entrypoint exposure defaults
 
 If the diff introduces a breaking change:
 
@@ -463,10 +422,10 @@ If the diff introduces a breaking change:
 
 Examples:
 
-    feat(acme): add DNS-01 challenge support for Cloudflare
+    feat(acme): add DNS-01 challenge support via RFC 2136
     fix(dynamic-config): correct middleware ref in router
     refactor(tasks): split install and configure into files
-    chore(meta): bump minimum Ansible version to 2.15
+    chore(meta): bump minimum Ansible version to 2.20
     test(molecule): add scenario for Ubuntu 24.04
 
     feat(defaults)!: rename traefik_acme_email variable
@@ -476,6 +435,13 @@ Examples:
 
 ### Step 6 — Output rules
 
-Return **only the commit message** — no explanation, no analysis,
-no diff, no markdown formatting, no code fences. The output will be
-pasted directly into a git commit editor.
+Return **only the commit message**. Do NOT include:
+
+* explanations or analysis
+* the diff
+* markdown formatting
+* code fences
+
+The output must be a clean commit message ready for `git commit`.
+It will be pasted directly into a git commit editor — optimize for
+copy/paste fidelity over styling.

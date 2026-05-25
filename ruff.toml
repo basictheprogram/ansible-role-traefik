@@ -2,6 +2,16 @@ line-length = 120
 indent-width = 4
 target-version = "py314"
 
+# Never lint third-party or generated paths.
+# .ansible/ contains Galaxy-installed collections and roles — not our code.
+exclude = [
+    ".ansible/",
+    ".cache/",
+    ".git/",
+    ".venv/",
+    "venv/",
+]
+
 [lint]
 select = ["ALL"]
 ignore = [

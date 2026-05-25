@@ -1,8 +1,10 @@
 # Ansible Role: traefik
 
 [![CI](https://github.com/basictheprogram/ansible-role-traefik/actions/workflows/ci.yml/badge.svg)](https://github.com/basictheprogram/ansible-role-traefik/actions/workflows/ci.yml)
-[![Ansible Galaxy](https://img.shields.io/badge/ansible--galaxy-traefik-blue.svg?style=popout-square)](https://galaxy.ansible.com/realtime/traefik)
-[![Ansible Role](https://img.shields.io/ansible/role/d/realtime/traefik.svg?style=popout-square)](https://galaxy.ansible.com/realtime/traefik)
+[![Ansible Galaxy](https://img.shields.io/badge/ansible--galaxy-realtime.traefik-blue.svg?style=popout-square)](https://galaxy.ansible.com/ui/standalone/roles/realtime/traefik/)
+[![Ansible Role](https://img.shields.io/ansible/role/d/realtime/traefik.svg?style=popout-square)](https://galaxy.ansible.com/ui/standalone/roles/realtime/traefik/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=popout-square)](LICENSE)
+[![ansible-core](https://img.shields.io/badge/ansible--core-%3E%3D2.20-lightgrey.svg?style=popout-square)](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html)
 
 Deploys [Traefik v3](https://doc.traefik.io/traefik/) as a reverse proxy and
 TLS edge on a single Docker host. DNS-01 ACME via RFC 2136 (works with BIND9,
@@ -219,7 +221,7 @@ that one cert. Preflight fails otherwise.
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `traefik_image` | `traefik:v3.4` | Docker image to pull |
+| `traefik_image` | `traefik:v3.7.1` | Docker image to pull |
 | `traefik_container_name` | `traefik` | Container name |
 | `traefik_check_new_version` | `true` | Enable Traefik's built-in version-check log line on startup. Set `false` to silence it. |
 | `traefik_memory_limit` | `1g` | Hard memory cap |
@@ -300,10 +302,18 @@ Allowlist middlewares are referenceable by name with the `@file` suffix:
 traefik.http.routers.myapp.middlewares: "security-headers@file,corp_office-allowlist@file"
 ```
 
-## Fork history
+## Credits
 
-Forked from [arillso/ansible.traefik](https://github.com/arillso/ansible.traefik)
-(itself a fork of [sbaerlocher/ansible.traefik](https://github.com/sbaerlocher/ansible.traefik)).
-**This role does not preserve the upstream public interface** — all
-`traefik_qs_*` and `traefik_confkey_*` variables are removed. See the
-breaking-change commit log for details.
+This role is a ground-up rewrite by Bob Tanner at
+[Real Time Enterprises, Inc.](https://www.realtime.bc.ca/), built on
+the original work of Matthias Leutenegger, whose
+[arillso/ansible.traefik](https://github.com/arillso/ansible.traefik)
+role (itself forked from
+[sbaerlocher/ansible.traefik](https://github.com/sbaerlocher/ansible.traefik))
+provided the structural starting point.
+
+The rewrite modernizes the role for ansible-core 2.20 and Traefik v3,
+replaces the HTTP-01 ACME strategy with DNS-01 via RFC 2136, and
+introduces a new public interface (`traefik_sites`, `traefik_wildcard_certs`,
+`traefik_acme_resolvers`). The upstream `traefik_qs_*` and
+`traefik_confkey_*` variable names are not preserved.

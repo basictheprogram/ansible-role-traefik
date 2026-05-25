@@ -4,19 +4,32 @@ dependencies: []
 galaxy_info:
   namespace: realtime
   role_name: traefik
-  author: "Matthias Leutenegger, maintained by Bob Tanner"
+  author: "Bob Tanner"
   company: "Real Time Enterprises, Inc."
-  description: Role to deploy traefik.
+  description: >-
+    Deploys Traefik v3 as a reverse proxy and TLS edge on a single Docker host.
+    Manages DNS-01 ACME certificate issuance via RFC 2136 dynamic DNS updates
+    (compatible with BIND9, Knot, PowerDNS, and any TSIG-capable nameserver),
+    wildcard certificates, and dynamic routing configuration through the Traefik
+    file provider. Originally authored by Matthias Leutenegger; modernized for
+    ansible-core 2.20, Traefik v3, and an RFC 2136 DNS-01 ACME strategy by
+    Bob Tanner at Real Time Enterprises, Inc.
   license: "MIT"
   min_ansible_version: "2.20"
   platforms:
     - name: Ubuntu
       versions:
-        - all
+        - jammy    # 22.04 LTS, standard support until April 2027
+        - noble    # 24.04 LTS, standard support until April 2029
+        - resolute # 26.04 LTS, standard support until April 2031
     - name: Debian
       versions:
-        - all
+        - bookworm # 12, current stable
+        - trixie   # 13, next stable
   galaxy_tags:
     - traefik
     - reverseproxy
     - docker
+    - acme
+    - tls
+    - letsencrypt
