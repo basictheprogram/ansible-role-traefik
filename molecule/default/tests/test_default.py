@@ -1,7 +1,7 @@
 """Molecule testinfra tests for ansible-role-traefik.
 
 These tests verify the converged state of the role against the variables
-defined in molecule/default/playbook.yml. They are integration tests —
+defined in molecule/default/converge.yml. They are integration tests —
 they inspect real filesystem state, Docker objects, and rendered file
 content on the test instance.
 
@@ -128,7 +128,7 @@ def test_secrets_file_no_unrendered_jinja(host: Host) -> None:
 
 
 def test_secrets_file_contains_aws_key(host: Host) -> None:
-    """Fake test credentials from playbook.yml should be present."""
+    """Fake test credentials from converge.yml should be present."""
     content = host.file("/opt/traefik/.env.secrets").content_string
     assert "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE" in content
     assert "AWS_SECRET_ACCESS_KEY=" in content

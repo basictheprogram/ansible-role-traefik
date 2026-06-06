@@ -20,6 +20,13 @@ wildcard certs, and file-provider dynamic config are the primary use case.
   (soft dependency: `geerlingguy.docker`)
 - `community.docker` collection >= 3.0
 
+## Supported Platforms
+
+| OS | Versions |
+| :--- | :--- |
+| Ubuntu | 22.04 (jammy), 24.04 (noble), 26.04 (resolute) |
+| Debian | 12 (bookworm), 13 (trixie) |
+
 ## Installation
 
 ```bash
@@ -50,17 +57,34 @@ traefik_acme_caserver: ""                  # set to LE staging during bring-up
 # One entry per (LE account, DNS provider) pair. Credentials are written
 # to .env.secrets (0600) and never appear in YAML.
 traefik_acme_resolvers:
+  ionos:
+    provider: ionos
+    delay_before_check: 120
+    env:
+      IONOS_API_KEY: "{{ traefik_ionos_api_key }}"              # vault this
+  route53:
+    provider: route53
+    delay_before_check: 0
+    env:
+      AWS_ACCESS_KEY_ID: "{{ traefik_route53_access_key_id }}"  # vault this
+      AWS_SECRET_ACCESS_KEY: "{{ traefik_route53_secret_access_key }}"
+      AWS_REGION: us-east-1
+  cloudflare:
+    provider: cloudflare
+    delay_before_check: 0
+    env:
+      CF_DNS_API_TOKEN: "{{ traefik_cloudflare_api_token }}"    # vault this
   rfc2136:
     provider: rfc2136
     delay_before_check: 120
     env:
-      RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"   # vault this
+      RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"  # vault this
 
 # Wildcard certs — one entry per cert, bound to a resolver.
 # Every router whose FQDNs fall under main/sans reuses the same cert.
 traefik_wildcard_certs:
   - name: example-com
-    resolver: rfc2136
+    resolver: cloudflare          # must match a key in traefik_acme_resolvers
     main: "*.portal.example.com"
     sans:
       - "*.dev.example.com"
@@ -71,11 +95,15 @@ traefik_default_cert: example-com    # installed in the TLS default store
 #### DNS provider credentials
 
 Credentials referenced by `traefik_acme_resolvers` must be vaulted on
-the consumer side:
+the consumer side. Only populate variables for resolvers actually
+referenced by a cert — the others can stay empty.
 
-| Variable | Notes |
-| :--- | :--- |
-| `traefik_rfc2136_tsig_api_key` | TSIG key with DNS-zone write scope on all zones covered by certs using this resolver. |
+| Variable | Used by | Notes |
+| :--- | :--- | :--- |
+| `traefik_ionos_api_key` | IONOS resolver | DNS-zone write scope. |
+| `traefik_route53_access_key_id`, `traefik_route53_secret_access_key` | Route53 resolver | IAM permissions: `route53:GetChange`, `route53:ChangeResourceRecordSets`, `route53:ListHostedZonesByName`. Scope to the relevant hosted zone. |
+| `traefik_cloudflare_api_token` | CloudFlare resolver | Scoped API token — preferred over the legacy `CF_API_KEY` global key. |
+| `traefik_rfc2136_tsig_api_key` | RFC 2136 resolver | TSIG key on a BIND9/Knot/PowerDNS server. CloudFlare and Route53 do not support RFC 2136. |
 
 Additional lego rfc2136 env vars (`RFC2136_NAMESERVER`, `RFC2136_TSIG_KEY`,
 `RFC2136_TSIG_SECRET`, `RFC2136_TSIG_ALGORITHM`) can be added to the
@@ -199,11 +227,13 @@ that one cert. Preflight fails otherwise.
 
 `tasks/main.yml` runs the role in this order:
 
-1. `preflight.yml` — assert required vars (ACME email when ACME is
-   enabled, every cert's resolver exists with non-empty credentials,
-   `traefik_default_cert` names a real entry, every site FQDN is
-   covered by at least one cert), confirm the Docker socket is
-   reachable.
+1. `preflight.yml` — assert required vars and environment readiness:
+   - `traefik_sites` is a list
+   - `traefik_acme_email` is non-empty when ACME is enabled
+   - every cert's resolver exists in `traefik_acme_resolvers` with non-empty credentials
+   - `traefik_default_cert` names a real entry in `traefik_wildcard_certs`
+   - every site FQDN is covered by at least one cert
+   - Docker socket is reachable at `/var/run/docker.sock`
 2. `install.yml` — create directories, render `compose.yml` and
    `traefik.yml`, write `.env.secrets`.
 3. `network.yml` — create the `traefik_proxy` Docker network.
@@ -221,7 +251,7 @@ that one cert. Preflight fails otherwise.
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `traefik_image` | `traefik:v3.7.1` | Docker image to pull |
+| `traefik_image` | `traefik:v3.7.4` | Docker image to pull |
 | `traefik_container_name` | `traefik` | Container name |
 | `traefik_check_new_version` | `true` | Enable Traefik's built-in version-check log line on startup. Set `false` to silence it. |
 | `traefik_memory_limit` | `1g` | Hard memory cap |
@@ -231,8 +261,10 @@ that one cert. Preflight fails otherwise.
 | `traefik_docker_network` | `traefik_proxy` | Docker network created by the role |
 | `traefik_entrypoint_web_port` | `80` | HTTP entrypoint port (redirects to HTTPS) |
 | `traefik_entrypoint_websecure_port` | `443` | HTTPS entrypoint port |
+| `traefik_cups_enabled` | `false` | Enable the IPP/CUPS entrypoint on `traefik_entrypoint_cups_port` |
 | `traefik_entrypoint_cups_port` | `631` | IPP/CUPS printing entrypoint port |
 | `traefik_log_level` | `INFO` | Traefik log level |
+| `traefik_compose_log_driver` | `journald` | Docker logging driver for the Traefik container |
 | `traefik_verify_healthcheck` | `true` | Wait for container healthcheck after start |
 | `traefik_verify_healthcheck_timeout` | `60` | Seconds to wait before failing |
 
@@ -301,6 +333,10 @@ Allowlist middlewares are referenceable by name with the `@file` suffix:
 ```yaml
 traefik.http.routers.myapp.middlewares: "security-headers@file,corp_office-allowlist@file"
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Credits
 

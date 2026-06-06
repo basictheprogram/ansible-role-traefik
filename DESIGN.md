@@ -430,28 +430,52 @@ the new domain set.
 
 ## TLS / ACME
 
-DNS-01 ACME via lego's `rfc2136` provider. RFC 2136 (Dynamic DNS
-Updates) is supported by any standards-compliant DNS server — BIND9,
-Knot, PowerDNS — and by most managed providers that expose a TSIG-
-authenticated update endpoint. One resolver entry per (LE account,
-nameserver) pair; each gets its own `acme-<name>.json` file.
+Multiple ACME resolvers, all backed by Let's Encrypt DNS-01, each
+bound to a different DNS provider via lego. Built-in support for
+**IONOS**, **AWS Route53**, **CloudFlare**, and **RFC 2136**; any
+other lego DNS provider can be added by appending an entry to
+`traefik_acme_resolvers`. Each wildcard cert spec names its resolver,
+so one host can serve cert sets issued through different providers
+concurrently.
 
 Provider configuration (rendered into static config, one block per
-resolver):
+resolver in `traefik_acme_resolvers`):
 
 ```yaml
 certificatesResolvers:
+  ionos:
+    acme:
+      email: "{{ traefik_acme_email }}"
+      storage: "{{ traefik_certs_dir }}/acme-ionos.json"
+      {% if traefik_acme_caserver %}caServer: "{{ traefik_acme_caserver }}"{% endif %}
+      dnsChallenge:
+        provider: ionos
+        delayBeforeCheck: 120
+        resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
+  route53:
+    acme:
+      email: "{{ traefik_acme_email }}"
+      storage: "{{ traefik_certs_dir }}/acme-route53.json"
+      dnsChallenge:
+        provider: route53
+        delayBeforeCheck: 0
+        resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
+  cloudflare:
+    acme:
+      email: "{{ traefik_acme_email }}"
+      storage: "{{ traefik_certs_dir }}/acme-cloudflare.json"
+      dnsChallenge:
+        provider: cloudflare
+        delayBeforeCheck: 0
+        resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
   rfc2136:
     acme:
       email: "{{ traefik_acme_email }}"
       storage: "{{ traefik_certs_dir }}/acme-rfc2136.json"
-      {% if traefik_acme_caserver %}caServer: "{{ traefik_acme_caserver }}"{% endif %}
       dnsChallenge:
         provider: rfc2136
         delayBeforeCheck: 120
-        resolvers:
-          - "1.1.1.1:53"
-          - "8.8.8.8:53"
+        resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
 ```
 
 Credentials:
@@ -461,25 +485,34 @@ Credentials:
   `{{ traefik_compose_dir }}/.env.secrets` containing every env entry
   from every defined resolver, and the compose `env_file:` references
   it. Compose YAML never contains secrets directly.
-* RFC 2136 env key: `RFC2136_TSIG_API_KEY`. The TSIG key must have
-  DNS-zone write scope on all zones covered by certs using this
-  resolver. Treat as high-blast-radius: store in a vaulted vars file,
+* Per-provider env keys (lego conventions):
+  * **IONOS** — `IONOS_API_KEY`
+  * **Route53** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+    `AWS_REGION`. IAM permissions required: `route53:GetChange`,
+    `route53:ChangeResourceRecordSets`,
+    `route53:ListHostedZonesByName`. Scope the key to the specific
+    hosted zone via an IAM policy condition.
+  * **CloudFlare** — `CF_DNS_API_TOKEN` (scoped token; preferred over
+    the older `CF_API_EMAIL` + `CF_API_KEY` global key path).
+  * **RFC 2136** — `RFC2136_TSIG_API_KEY`. Additional optional vars:
+    `RFC2136_NAMESERVER`, `RFC2136_TSIG_KEY`, `RFC2136_TSIG_SECRET`,
+    `RFC2136_TSIG_ALGORITHM`. RFC 2136 is supported by BIND9, Knot,
+    PowerDNS, and any server that accepts TSIG-authenticated dynamic
+    updates. CloudFlare and Route53 do **not** support RFC 2136.
+* All credentials have DNS-zone write scope on at least one zone.
+  Treat as high-blast-radius: vaulted vars file per controller,
   preflight uses `no_log: true` when asserting presence.
-* Additional lego rfc2136 env vars (set in the resolver's `env:` block
-  if your nameserver requires them): `RFC2136_NAMESERVER`,
-  `RFC2136_TSIG_KEY`, `RFC2136_TSIG_SECRET`, `RFC2136_TSIG_ALGORITHM`.
 
-RFC 2136 propagation tuning:
+Propagation tuning:
 
-* `delay_before_check: 120` is the role default. After lego submits
-  the TXT update via TSIG, the authoritative server may not yet have
-  propagated to public resolvers. Setting this too low causes "no DNS
-  record found" failures and burns LE issuance attempts.
+* `delay_before_check` is per-resolver. IONOS and RFC 2136 default to
+  120 s because propagation from their authoritative servers to public
+  resolvers can lag significantly. CloudFlare and Route53 propagate
+  in seconds; their default is 0.
 * `traefik_acme_default_dns_resolvers` (1.1.1.1 / 8.8.8.8) is what
-  Traefik uses to *check* propagation. Propagation must reach the
-  public DNS edge before the check passes. Tune `delay_before_check`
-  per resolver in `host_vars` if your nameserver is consistently
-  faster or slower.
+  Traefik uses to *check* propagation. The TXT record must reach the
+  public DNS edge before the check passes — which is why slow
+  providers need a delay.
 
 Storage and lifecycle:
 
@@ -497,17 +530,15 @@ Storage and lifecycle:
   variable, delete every `acme-*.json` once, re-run to obtain prod
   certs.
 
-Operational properties of the DNS-01 switch:
+Operational properties of DNS-01:
 
 * **No port-80 reachability needed for issuance.** Sites can be
   brought up before public DNS A/AAAA records exist; certs issue
   against the DNS challenge without inbound traffic.
 * **Wildcard certs simplify SAN drift.** Adding a new subdomain
-  doesn't trigger a new ACME order; the existing wildcard already
-  covers it.
+  doesn't trigger a new ACME order; the existing wildcard covers it.
 * **Renewal traffic is outbound only** (HTTPS to each DNS provider's
-  API + LE). Eliminates a class of "cert renewal failed because :80
-  was blocked" incidents.
+  API + LE). Eliminates "cert renewal failed because :80 was blocked".
 * **Trade-off**: dependency on each enabled DNS provider's API
   availability during issuance and renewal. If a provider is down at
   renewal time, that resolver's existing certs remain valid until
@@ -515,11 +546,16 @@ Operational properties of the DNS-01 switch:
 
 Credential rotation policy:
 
-* **RFC 2136 TSIG key**: rotate on suspicion only (suspected leak,
-  staff departure with knowledge, audit finding). No scheduled cadence.
-  Procedure: generate a new TSIG key on the nameserver, update the
-  vaulted var, re-run role; new key is in effect on the next renewal
-  cycle without a container restart.
+* **IONOS**: rotate on suspicion only (suspected leak, staff departure
+  with knowledge, audit finding). No scheduled cadence. Procedure:
+  edit vaulted var, re-run role; new key is in effect on the next
+  renewal cycle without restart.
+* **Route53 / CloudFlare**: same policy unless a higher-level control
+  (org IAM rotation policy, key-management compliance requirement)
+  dictates otherwise.
+* **RFC 2136 TSIG key**: generate a new TSIG key on the nameserver,
+  update the vaulted var, re-run role; new key takes effect on the
+  next renewal cycle without a container restart.
 
 Backup of `acme-*.json` files: out of scope for this role. Recommended
 a separate role / cron copy off-box daily; with wildcards in play, one
@@ -644,10 +680,13 @@ inventory/
 `group_vars/all/traefik.yml` defines `traefik_allowlist_groups`,
 `traefik_wildcard_certs`, `traefik_default_cert`, and any org-wide
 overrides. `vault_traefik.yml` holds DNS provider credentials —
+`traefik_ionos_api_key`, `traefik_route53_access_key_id` /
+`traefik_route53_secret_access_key`, `traefik_cloudflare_api_token`,
 `traefik_rfc2136_tsig_api_key` — plus `traefik_acme_email` if you
-want it private. Each `host_vars/proxy-*.yml` contains
-`traefik_sites` for that VM and may override the default cert when the
-VM serves only non-default domains.
+want it private. Only the credentials for resolvers actually referenced
+by a cert need to be populated; the others can stay empty. Each
+`host_vars/proxy-*.yml` contains `traefik_sites` for that VM and may
+override the default cert when the VM serves only non-default domains.
 
 ---
 

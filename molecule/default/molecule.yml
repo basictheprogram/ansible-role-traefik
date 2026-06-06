@@ -75,6 +75,7 @@ scenario:
 
 verifier:
   name: testinfra
-  directory: ./tests/
+  directory: tests/
   options:
     v: true
+    p: "no:cacheprovider"

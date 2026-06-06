@@ -1,6 +1,6 @@
 ---
 # Image and runtime
-traefik_image: "traefik:v3.7.1"
+traefik_image: "traefik:v3.7.4"
 traefik_container_name: traefik
 traefik_restart_policy: unless-stopped
 traefik_check_new_version: true
@@ -48,9 +48,26 @@ traefik_acme_default_dns_resolvers:
 # One entry per (LE account, DNS provider) pair. Each resolver gets its
 # own acme-<name>.json under traefik_certs_dir. Credentials are injected
 # via env vars matching what the lego provider expects.
-# rfc2136 works with any standards-compliant DNS server that accepts
-# TSIG-authenticated dynamic updates (BIND9, Knot, PowerDNS, etc.).
+# Only resolvers referenced by traefik_wildcard_certs are contacted;
+# unused entries here are zero-cost (Traefik ignores them at runtime).
 traefik_acme_resolvers:
+  ionos:
+    provider: ionos
+    delay_before_check: 120 # IONOS propagation is genuinely slow
+    env:
+      IONOS_API_KEY: "{{ traefik_ionos_api_key }}"
+  route53:
+    provider: route53
+    delay_before_check: 0
+    env:
+      AWS_ACCESS_KEY_ID: "{{ traefik_route53_access_key_id }}"
+      AWS_SECRET_ACCESS_KEY: "{{ traefik_route53_secret_access_key }}"
+      AWS_REGION: us-east-1 # Route53 is global; lego still requires a region
+  cloudflare:
+    provider: cloudflare
+    delay_before_check: 0
+    env:
+      CF_DNS_API_TOKEN: "{{ traefik_cloudflare_api_token }}"
   rfc2136:
     provider: rfc2136
     delay_before_check: 120 # allow time for DNS propagation after TXT update
@@ -58,6 +75,12 @@ traefik_acme_resolvers:
       RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"
 
 # DNS provider credentials — MUST be vaulted on the consumer side.
+# Only populate the variables for resolvers actually used by a cert;
+# the others can safely remain empty.
+traefik_ionos_api_key: ""
+traefik_route53_access_key_id: ""
+traefik_route53_secret_access_key: ""
+traefik_cloudflare_api_token: ""
 traefik_rfc2136_tsig_api_key: ""
 
 # Wildcard certs and the default cert (see DESIGN.md §Schemas)

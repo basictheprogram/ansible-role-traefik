@@ -97,10 +97,11 @@ flag the discrepancy and ask before fixing the design to match the code.
 ### Design notes
 
 `DESIGN.md` covers: public interface variable schemas, static config
-layout, TLS / ACME strategy (DNS-01 only via RFC 2136), dynamic config
-file-provider structure, site routing schema, wildcard cert schema,
-allowlist group model, inventory layout, bootstrap sequence, migration
-path from hand-managed Compose, and multi-region deployment model.
+layout, TLS / ACME strategy (DNS-01 via IONOS, Route53, CloudFlare,
+or RFC 2136), dynamic config file-provider structure, site routing
+schema, wildcard cert schema, allowlist group model, inventory layout,
+bootstrap sequence, migration path from hand-managed Compose, and
+multi-region deployment model.
 
 Key structural points:
 
@@ -120,13 +121,21 @@ Key structural points:
 
 ### Secrets
 
-Role-specific secret variable names:
+Role-specific secret variable names (vault on the consumer side; never
+set in `defaults/`). The role templates all of these into
+`{{ traefik_compose_dir }}/.env.secrets` (0600, root-owned). Only
+populate variables for resolvers actually referenced by a cert.
+Use `no_log: true` on any task that touches them.
 
-* `traefik_rfc2136_tsig_api_key` — TSIG key with DNS-zone write scope
-  on all zones covered by certs using this resolver. Must be vaulted
-  on the consumer side; never set in `defaults/`. The role templates
-  it into `{{ traefik_compose_dir }}/.env.secrets` (0600, root-owned).
-  Use `no_log: true` on any task that touches it.
+* `traefik_ionos_api_key` — IONOS DNS API key; DNS-zone write scope.
+* `traefik_route53_access_key_id` / `traefik_route53_secret_access_key`
+  — AWS IAM key pair; needs `route53:GetChange`,
+  `route53:ChangeResourceRecordSets`, `route53:ListHostedZonesByName`.
+* `traefik_cloudflare_api_token` — CloudFlare scoped API token; DNS
+  edit permission on the relevant zone.
+* `traefik_rfc2136_tsig_api_key` — TSIG key for a BIND9/Knot/PowerDNS
+  server that accepts RFC 2136 dynamic updates. CloudFlare and Route53
+  do **not** support RFC 2136; use their native providers instead.
 
 ### Commit scopes
 
@@ -139,8 +148,11 @@ Role-specific subsystem scopes: `static-config`, `dynamic-config`,
 These are locked in `DESIGN.md`. Don't propose alternatives unless
 the human raises them:
 
-* TLS = Let's Encrypt, **DNS-01 only**, via RFC 2136 (`rfc2136`
-  lego provider). No HTTP-01 path is built.
+* TLS = Let's Encrypt, **DNS-01 only**. No HTTP-01 path is built.
+* DNS providers supported: IONOS, AWS Route53, CloudFlare, RFC 2136.
+  RFC 2136 is a dynamic DNS update protocol (BIND9/Knot/PowerDNS);
+  CloudFlare and Route53 have their own lego providers and do **not**
+  use RFC 2136.
 * Container runtime = Docker via
   `community.docker.docker_compose_v2`. No Swarm, no Kubernetes,
   no native systemd binary.
@@ -150,8 +162,8 @@ the human raises them:
   reference (no copy-paste of IPs).
 * Verification = container healthcheck only (`traefik healthcheck
   --ping`). No FQDN probing, no Traefik API introspection.
-* `delay_before_check: 120` on the rfc2136 resolver — DNS propagation
-  after a TSIG TXT update can lag. Don't lower without measurement data.
+* `delay_before_check: 120` for IONOS and RFC 2136 (slow propagation);
+  `0` for CloudFlare and Route53. Don't raise without measurement data.
 * Firewall = upstream Fortigate. Role does not manage host firewalls.
 * Network name = `traefik_proxy` (renamed from the legacy `dmz`
   network), created by the role.

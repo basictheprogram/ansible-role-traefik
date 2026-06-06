@@ -4,12 +4,14 @@
     that:
       - traefik_sites | type_debug == 'list'
     fail_msg: "traefik_sites must be a list (can be empty when using only co-located containers)"
+    quiet: true
 
 - name: Preflight | traefik_acme_email required when ACME enabled
   ansible.builtin.assert:
     that:
       - traefik_acme_email | length > 0
     fail_msg: "traefik_acme_email must be set when traefik_acme_enabled is true"
+    quiet: true
   when: traefik_acme_enabled
 
 - name: Preflight | every cert resolver is defined in traefik_acme_resolvers
@@ -19,7 +21,10 @@
     fail_msg: >-
       cert '{{ item.name }}' references resolver '{{ item.resolver }}'
       which is not defined in traefik_acme_resolvers
+    quiet: true
   loop: "{{ traefik_wildcard_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
   when: traefik_acme_enabled
 
 - name: Preflight | traefik_default_cert names a real cert
@@ -29,6 +34,7 @@
     fail_msg: >-
       traefik_default_cert '{{ traefik_default_cert }}' does not match
       any entry in traefik_wildcard_certs
+    quiet: true
   when: traefik_default_cert | length > 0
 
 - name: Preflight | explicit site.cert exists in traefik_wildcard_certs
@@ -38,7 +44,10 @@
     fail_msg: >-
       site '{{ item.name }}' specifies cert '{{ item.cert }}'
       which is not in traefik_wildcard_certs
+    quiet: true
   loop: "{{ traefik_sites | selectattr('cert', 'defined') | selectattr('cert', 'ne', '') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Preflight | collect resolver credentials for active certs
   ansible.builtin.set_fact:
@@ -60,7 +69,10 @@
     that:
       - item.value | length > 0
     fail_msg: "credential '{{ item.key }}' is empty; set and vault the variable before running"
+    quiet: true
   loop: "{{ _traefik_cred_items | default([]) }}"
+  loop_control:
+    label: "{{ item.key }}"
   no_log: true
   when: traefik_acme_enabled
 
@@ -97,6 +109,7 @@
     fail_msg: >-
       FQDNs not covered by any cert in traefik_wildcard_certs:
       {{ _traefik_uncovered_fqdns | from_json | join(', ') }}
+    quiet: true
 
 - name: Preflight | Docker socket exists
   ansible.builtin.stat:
@@ -109,4 +122,5 @@
       - _traefik_docker_sock.stat.exists
       - _traefik_docker_sock.stat.issock
     fail_msg: "/var/run/docker.sock not found or not a socket; ensure Docker Engine is installed and running"
+    quiet: true
   tags: molecule-notest

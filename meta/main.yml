@@ -6,6 +6,7 @@ galaxy_info:
   role_name: traefik
   author: "Bob Tanner"
   company: "Real Time Enterprises, Inc."
+  issue_tracker_url: "https://github.com/basictheprogram/ansible-role-traefik/issues"
   description: >-
     Deploys Traefik v3 as a reverse proxy and TLS edge on a single Docker host.
     Manages DNS-01 ACME certificate issuance via RFC 2136 dynamic DNS updates
@@ -29,7 +30,11 @@ galaxy_info:
   galaxy_tags:
     - traefik
     - reverseproxy
+    - proxy
     - docker
     - acme
+    - dns01
     - tls
     - letsencrypt
+    - ubuntu
+    - debian
