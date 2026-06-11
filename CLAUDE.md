@@ -181,6 +181,25 @@ linking to the section rather than guessing:
 * `delay_before_check` post-pilot tuning — 120 s is a defensive
   default; tune down once production propagation lag is measured.
 
+#### HTTP-01 / cross-fire.org — RESOLVED 2026-06-11
+
+`cross-fire.org` domain owner agreed to CloudFlare (full zone
+delegation) and wildcard TLS. Both sites use the existing `cloudflare`
+resolver. No role changes needed; HTTP-01 support is not required.
+
+Consumer-side work needed (in the playbooks inventory, not this repo):
+* Vault `traefik_cloudflare_api_token` for the `cross-fire.org` zone.
+* Add a wildcard cert entry to `traefik_wildcard_certs`:
+    - name: cross-fire-org
+      resolver: cloudflare
+      main: "*.cross-fire.org"
+* Add sites to `traefik_sites`:
+    - forum.cross-fire.org (migration from bookworm host; EoL 2026-06-30)
+    - phpbb3.cross-fire.org (new site)
+* Set `traefik_default_cert` if cross-fire.org is the only cert on that
+  host, or leave existing default and pin `cert: cross-fire-org` on each
+  site entry.
+
 ### Implementation order
 
 Work one section at a time. Each item = one focused session and one

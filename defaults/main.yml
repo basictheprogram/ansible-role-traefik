@@ -1,6 +1,6 @@
 ---
 # Image and runtime
-traefik_image: "traefik:v3.7.4"
+traefik_image: "traefik:v3.7.5"
 traefik_container_name: traefik
 traefik_restart_policy: unless-stopped
 traefik_check_new_version: true
@@ -35,6 +35,16 @@ traefik_journald_tag: "traefik.{{ inventory_hostname }}"
 traefik_journald_labels:
   env: "{{ traefik_environment | default('prod') }}"
 
+# Access log — override in host_vars or group_vars with a complete dict.
+# Default is privacy-preserving: headers dropped, only User-Agent kept.
+traefik_access_log:
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+
 # ACME / Let's Encrypt — DNS-01 challenge with multiple DNS providers
 traefik_acme_enabled: true
 traefik_acme_email: "" # required when traefik_acme_enabled
@@ -44,6 +54,12 @@ traefik_acme_caserver: "" # set to LE staging URL during initial bring-up
 traefik_acme_default_dns_resolvers:
   - "1.1.1.1:53"
   - "8.8.8.8:53"
+
+# Skip the DNS propagation check entirely before asking the CA to validate
+# the TXT record. Useful when a provider's authoritative answer is trusted
+# immediately (or the propagation check itself is unreliable). Override per
+# resolver with `disable_propagation_check: true` in traefik_acme_resolvers.
+traefik_acme_disable_propagation_check: false
 
 # One entry per (LE account, DNS provider) pair. Each resolver gets its
 # own acme-<name>.json under traefik_certs_dir. Credentials are injected
@@ -105,3 +121,8 @@ traefik_default_servers_transport:
 # Verification
 traefik_verify_healthcheck: true
 traefik_verify_healthcheck_timeout: 60 # seconds; poll docker inspect until healthy
+# Bind ping to a localhost-only entrypoint for security hardening.
+# Empty string (default) leaves ping on Traefik's default entrypoint.
+# When set, a dedicated entrypoint is created at traefik_ping_entrypoint_address.
+traefik_ping_entrypoint: ""
+traefik_ping_entrypoint_address: "127.0.0.1:8080" # only used when traefik_ping_entrypoint is set

@@ -3,7 +3,12 @@ global:
   sendAnonymousUsage: false
   checkNewVersion: {{ traefik_check_new_version | lower }}
 {% if traefik_verify_healthcheck %}
-ping: {}
+ping:
+{% if traefik_ping_entrypoint %}
+  entryPoint: {{ traefik_ping_entrypoint }}
+{% else %}
+  {}
+{% endif %}
 {% endif %}
 
 log:
@@ -11,16 +16,16 @@ log:
   format: {{ traefik_log_format }}
 
 accessLog:
-  format: json
-  fields:
-    headers:
-      defaultMode: drop
-      names:
-        User-Agent: keep
+{{ traefik_access_log | to_nice_yaml(indent=2) | indent(2, first=true) }}
 
 entryPoints:
   web:
     address: ":{{ traefik_entrypoint_web_port }}"
+    forwardedHeaders:
+      trustedIPs:
+{% for ip in traefik_trusted_ips %}
+        - "{{ ip }}"
+{% endfor %}
     http:
       redirections:
         entryPoint:
@@ -42,6 +47,10 @@ entryPoints:
 {% for ip in traefik_trusted_ips %}
         - "{{ ip }}"
 {% endfor %}
+{% endif %}
+{% if traefik_verify_healthcheck and traefik_ping_entrypoint %}
+  {{ traefik_ping_entrypoint }}:
+    address: "{{ traefik_ping_entrypoint_address }}"
 {% endif %}
 
 providers:
@@ -68,6 +77,7 @@ certificatesResolvers:
       dnsChallenge:
         provider: {{ resolver.provider }}
         delayBeforeCheck: {{ resolver.delay_before_check }}
+        disablePropagationCheck: {{ (resolver.disable_propagation_check | default(traefik_acme_disable_propagation_check)) | lower }}
         resolvers:
 {% for r in (resolver.dns_resolvers | default(traefik_acme_default_dns_resolvers)) %}
           - "{{ r }}"
