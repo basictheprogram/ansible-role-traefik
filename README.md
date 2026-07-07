@@ -18,7 +18,8 @@ wildcard certs, and file-provider dynamic config are the primary use case.
 - ansible-core >= 2.20
 - Docker Engine and the `docker` Python SDK on the target host
   (soft dependency: `geerlingguy.docker`)
-- `community.docker` collection >= 3.0
+- `community.docker` collection >= 3.0, declared in `requirements.yml`;
+  install with `ansible-galaxy collection install -r requirements.yml`
 
 ## Supported Platforms
 
@@ -228,6 +229,7 @@ that one cert. Preflight fails otherwise.
 `tasks/main.yml` runs the role in this order:
 
 1. `preflight.yml` — assert required vars and environment readiness:
+   - ansible-core version is >= 2.20
    - `traefik_sites` is a list
    - `traefik_acme_email` is non-empty when ACME is enabled
    - every cert's resolver exists in `traefik_acme_resolvers` with non-empty credentials
@@ -334,14 +336,37 @@ Allowlist middlewares are referenceable by name with the `@file` suffix:
 traefik.http.routers.myapp.middlewares: "security-headers@file,corp_office-allowlist@file"
 ```
 
+## Testing
+
+When Traefik is running on a host with a private or temporary IP, you cannot
+curl it by IP directly — Traefik relies on SNI to select the correct certificate
+and router. Connecting to a bare IP sends no SNI, producing a
+`tlsv1 unrecognized name` TLS error even though the port is open.
+
+Use `--resolve` to force curl to connect to the private IP while sending the
+correct hostname as the SNI:
+
+```bash
+curl -vk --resolve "<fqdn>:443:<host-ip>" https://<fqdn>/<path>/
+```
+
+For example, to test the phpBB3 site:
+
+```bash
+curl -vk --resolve "phpbb3.cross-fire.org:443:<host-ip>" https://phpbb3.cross-fire.org/phpBB3/
+```
+
+Replace `<host-ip>` with the actual IP of the Traefik host. The connection goes
+to that IP, but curl presents `phpbb3.cross-fire.org` in the TLS handshake so
+Traefik can match the router and serve the right certificate.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
 ## Credits
 
-This role is a ground-up rewrite by Bob Tanner at
-[Real Time Enterprises, Inc.](https://www.realtime.bc.ca/), built on
+This role is a ground-up rewrite by Bob Tanner, built on
 the original work of Matthias Leutenegger, whose
 [arillso/ansible.traefik](https://github.com/arillso/ansible.traefik)
 role (itself forked from

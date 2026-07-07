@@ -14,19 +14,10 @@ galaxy_info:
     wildcard certificates, and dynamic routing configuration through the Traefik
     file provider. Originally authored by Matthias Leutenegger; modernized for
     ansible-core 2.20, Traefik v3, and an RFC 2136 DNS-01 ACME strategy by
-    Bob Tanner at Real Time Enterprises, Inc.
+    Bob Tanner at Real Time Enterprises, Inc. Supports Debian (bookworm,
+    trixie) and Ubuntu (jammy, noble, resolute).
   license: "MIT"
   min_ansible_version: "2.20"
-  platforms:
-    - name: Ubuntu
-      versions:
-        - jammy    # 22.04 LTS, standard support until April 2027
-        - noble    # 24.04 LTS, standard support until April 2029
-        - resolute # 26.04 LTS, standard support until April 2031
-    - name: Debian
-      versions:
-        - bookworm # 12, current stable
-        - trixie   # 13, next stable
   galaxy_tags:
     - traefik
     - reverseproxy

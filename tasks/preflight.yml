@@ -1,4 +1,11 @@
 ---
+- name: Preflight | ansible-core version meets minimum
+  ansible.builtin.assert:
+    that:
+      - ansible_version.full is version('2.20', '>=')
+    fail_msg: "realtime.traefik requires ansible-core >= 2.20 (found {{ ansible_version.full }})"
+    quiet: true
+
 - name: Preflight | traefik_sites is a list
   ansible.builtin.assert:
     that:
