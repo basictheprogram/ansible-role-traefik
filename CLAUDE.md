@@ -4,6 +4,8 @@ Deploys [Traefik v3](https://doc.traefik.io/traefik/) as a reverse proxy and
 TLS edge on a single Docker host. DNS-01 ACME via RFC 2136 (works with BIND9,
 Knot, PowerDNS, and any provider with a TSIG-authenticated update endpoint),
 wildcard certs, and file-provider dynamic config are the primary use case.
+HTTP-01 and TLS-ALPN-01 resolvers (per-FQDN certs, no wildcards) are
+supported alongside DNS-01 for domains whose DNS can't be delegated.
 
 ---
 
@@ -98,7 +100,7 @@ flag the discrepancy and ask before fixing the design to match the code.
 
 `DESIGN.md` covers: public interface variable schemas, static config
 layout, TLS / ACME strategy (DNS-01 via IONOS, Route53, CloudFlare,
-or RFC 2136), dynamic config file-provider structure, site routing
+or RFC 2136; HTTP-01 and TLS-ALPN-01 per resolver), dynamic config file-provider structure, site routing
 schema, wildcard cert schema, allowlist group model, inventory layout,
 bootstrap sequence, migration path from hand-managed Compose, and
 multi-region deployment model.
@@ -148,7 +150,15 @@ Role-specific subsystem scopes: `static-config`, `dynamic-config`,
 These are locked in `DESIGN.md`. Don't propose alternatives unless
 the human raises them:
 
-* TLS = Let's Encrypt, **DNS-01 only**. No HTTP-01 path is built.
+* TLS = Let's Encrypt. The challenge type is chosen per resolver via
+  `challenge:` — `dns` (default; the only type that can issue
+  wildcards), `http`, or `tls-alpn`. HTTP-01/TLS-ALPN-01 certs are
+  per-FQDN and live in `traefik_wildcard_certs` alongside wildcard
+  ones (the name is kept to avoid a breaking rename). Built-in
+  `http01` and `tlsalpn01` resolvers carry no provider and no
+  credentials. Preflight rejects `*.` patterns on non-`dns` resolvers
+  and a non-`dns` resolver for `traefik_default_cert`. (Reverses the
+  earlier "DNS-01 only" decision, raised by the maintainer.)
 * DNS providers supported: IONOS, AWS Route53, CloudFlare, RFC 2136.
   RFC 2136 is a dynamic DNS update protocol (BIND9/Knot/PowerDNS);
   CloudFlare and Route53 have their own lego providers and do **not**
@@ -180,8 +190,17 @@ linking to the section rather than guessing:
 * Multi-region rollout order.
 * `delay_before_check` post-pilot tuning — 120 s is a defensive
   default; tune down once production propagation lag is measured.
+* HTTP-01 vs the `web` entrypoint's HTTP→HTTPS redirect: believed to
+  leave the ACME challenge path reachable, not verified. Check on LE
+  staging before relying on `http` resolvers. See `DESIGN.md`.
+* `traefik_default_cert` on an `http`/`tls-alpn` resolver: rejected in
+  preflight until verified on LE staging. See `DESIGN.md`.
 
-#### HTTP-01 / cross-fire.org — RESOLVED 2026-06-11
+#### HTTP-01 / cross-fire.org — RESOLVED 2026-06-11 (superseded)
+
+Superseded: HTTP-01 support is now being added (see Settled decisions
+and Implementation order). The note below records the earlier outcome
+for that one domain.
 
 `cross-fire.org` domain owner agreed to CloudFlare (full zone
 delegation) and wildcard TLS. Both sites use the existing `cloudflare`
@@ -239,7 +258,7 @@ specific regression or design change requires it.
 16. ✅ `tasks/main.yml` — orchestrates the above; legacy includes
     removed.
 17. ✅ `handlers/main.yml` — `restart traefik` handler.
-18. ✅ `molecule/default/` — platform matrix (Debian 12/13, Ubuntu
+18. ✅ `molecule/default/` — platform matrix (Debian 13, Ubuntu
     22.04/24.04/26.04); testinfra verifier.
 19. ✅ `README.md` — usage examples, docker-label convention, pointer
     to DESIGN.md.
@@ -251,6 +270,24 @@ specific regression or design change requires it.
     two cert specs).
 23. Add molecule scenario for `traefik_acme_enabled: true` with a
     mock RFC 2136 resolver.
+25. HTTP-01 / TLS-ALPN-01 support, in this order, one commit each:
+    a+b. ✅ (one commit; a alone breaks rendering) `defaults/main.yml`
+       + `meta/argument_specs.yml` — `challenge` key, `http01`/
+       `tlsalpn01` resolvers; `templates/traefik.yml.j2` — render
+       `dnsChallenge`, `httpChallenge` or `tlsChallenge` per resolver;
+       `templates/env.secrets.j2` — tolerate resolvers without `env`.
+    c. `tasks/preflight.yml` — credential check for `dns` resolvers
+       only; reject `*.` on non-`dns` resolvers; require a `dns`
+       resolver for `traefik_default_cert`; assert `challenge` is one
+       of dns/http/tls-alpn (the template silently omits the challenge
+       block for an unknown value) and that `dns` resolvers have a
+       `provider`.
+    d. Molecule — enable ACME in converge with a fake-credential
+       `dns` resolver plus `http` and `tls-alpn` ones; assert the
+       rendered `traefik.yml` and the preflight failures.
+    e. `README.md` — prerequisites (:80/:443 reachable, DNS records
+       already pointing at the proxy, LE staging first).
+    f. Verify against LE staging; settle the two open questions above.
 24. Expand `molecule/default/tests/test_default.py` — verify dynamic
     config files are rendered, secrets file has mode 0600, container
     is healthy.

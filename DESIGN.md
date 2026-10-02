@@ -16,10 +16,12 @@ pray" workflow.
   group, not five edits across five files.
 * Hot-reloadable changes (routers, services, middlewares, allowlists)
   do not restart Traefik.
-* TLS via Let's Encrypt **DNS-01** challenge using a per-region wildcard
-  cert set. Cert issuance does not require :80 to be reachable from the
-  internet, and one cert covers any number of subdomains under a
-  controlled zone.
+* TLS via Let's Encrypt, with the challenge type chosen per resolver:
+  **DNS-01** (the default; wildcard certs, no inbound traffic needed),
+  **HTTP-01**, or **TLS-ALPN-01** (per-FQDN certs, for domains whose
+  DNS can't be delegated to an API-capable provider). One host can mix
+  all three. HTTP-01 and TLS-ALPN-01 can't issue wildcards and need
+  :80 (HTTP-01) or :443 (TLS-ALPN-01) reachable from the internet.
 * Compatible with `ansible-core` >= 2.20, Debian 13 and Ubuntu 22.04/24.04,
   Traefik v3.
 
@@ -35,7 +37,7 @@ pray" workflow.
 * No host-local firewall management. Perimeter filtering is handled by
   an upstream device; the role assumes :80 and :443 are reachable
   to the proxy VM from the internet (DNS-01 does not strictly require
-  :80, but the entrypoint is still served for HTTP→HTTPS redirect).
+  them; HTTP-01 requires :80 and TLS-ALPN-01 requires :443).
 
 ---
 
@@ -189,7 +191,7 @@ traefik_journald_tag: "traefik.{{ inventory_hostname }}"
 traefik_journald_labels:
   env: "{{ traefik_environment | default('prod') }}"
 
-# ACME / Let's Encrypt — DNS-01 challenge with multiple DNS providers
+# ACME / Let's Encrypt — DNS-01, HTTP-01, or TLS-ALPN-01 per resolver
 traefik_acme_enabled: true
 traefik_acme_email: ""                   # required when acme_enabled
 traefik_acme_caserver: ""                # set to LE staging during testing
@@ -200,10 +202,12 @@ traefik_acme_default_dns_resolvers:
   - "1.1.1.1:53"
   - "8.8.8.8:53"
 
-# Resolver definitions — one entry per (LE account, DNS provider) pair.
-# Each resolver gets its own acme.json file under traefik_certs_dir
-# (acme-<name>.json). Provider credentials are passed to the container
-# via env vars whose names match what the lego provider expects.
+# Resolver definitions — one entry per (LE account, challenge/provider)
+# pair. Each resolver gets its own acme.json file under traefik_certs_dir
+# (acme-<name>.json). `challenge` is dns (default), http, or tls-alpn.
+# dns resolvers need `provider`; their credentials are passed to the
+# container via env vars whose names match what the lego provider
+# expects. http and tls-alpn resolvers take no provider and no env.
 # Defaults below are sensible per-provider starting points; tune per
 # deployment via group_vars.
 traefik_acme_resolvers:
@@ -212,6 +216,10 @@ traefik_acme_resolvers:
     delay_before_check: 120              # allow time for DNS propagation after TXT update
     env:
       RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"
+  http01:
+    challenge: http                      # httpChallenge on the web entrypoint
+  tlsalpn01:
+    challenge: tls-alpn                  # tlsChallenge; needs :443 reachable
 
 # DNS provider credentials — MUST be vaulted; never set in defaults.
 traefik_rfc2136_tsig_api_key: ""
@@ -324,8 +332,11 @@ middleware is generated.
 
 A list of LE certificates to issue and renew. Each entry binds to a
 named resolver from `traefik_acme_resolvers` and produces one ACME
-order against that resolver's DNS provider. Every router whose FQDNs
-fall under this entry's `main` + `sans` reuses the same cert.
+order against that resolver. Every router whose FQDNs fall under this
+entry's `main` + `sans` reuses the same cert. Despite the name, the
+list also holds non-wildcard certs: an entry bound to an `http` or
+`tls-alpn` resolver lists exact FQDNs (see the notes below). The name
+is kept to avoid a breaking rename; see Future work.
 
 ```yaml
 traefik_wildcard_certs:
@@ -336,15 +347,30 @@ traefik_wildcard_certs:
       - "*.dev.example.com"
       - "www.link.example.com"
 
+  - name: portal-example-org       # HTTP-01: exact FQDNs only, no wildcards
+    resolver: http01
+    main: "portal.example.org"
+    sans:
+      - "www.portal.example.org"
+
 traefik_default_cert: example-com  # cert installed in TLS default store
 ```
 
 Notes:
 
-* **All domains in a single cert spec must be resolvable via the bound
-  resolver's DNS server.** A cert can't span zones served by different
+* **Wildcards require a `dns` resolver.** HTTP-01 and TLS-ALPN-01 can't
+  validate `*.` names, so preflight fails if a cert bound to an `http`
+  or `tls-alpn` resolver has a `*.` pattern in `main` or `sans`. Every
+  FQDN on such a cert must also be publicly reachable on :80
+  (HTTP-01) or :443 (TLS-ALPN-01) at issuance and renewal.
+* **For `dns` resolvers, all domains in a single cert spec must be
+  resolvable via the bound resolver's DNS server.** A cert can't span zones served by different
   RFC 2136 nameservers in a single order; domains hosted on different
   DNS servers need separate cert specs with separate resolvers.
+* `traefik_default_cert` must name a cert bound to a `dns` resolver.
+  Preflight rejects `http` and `tls-alpn` resolvers there until issuing
+  the default-store cert that way is verified against LE staging (see
+  Open questions).
 * The cert named in `traefik_default_cert` is installed in the default
   TLS store. Routers that don't pin a `cert:` get this one — useful for
   co-located docker-labeled containers that don't need to know cert
@@ -355,8 +381,10 @@ Notes:
   invisible at the inventory level; the operator still writes one
   site entry. Naming convention: `<site.name>-<cert.name>` for the
   generated routers.
-* Adding a new wildcard scope = one entry here + a re-run. ACME order
-  happens once; subsequent runs are no-ops while the cert is valid.
+* Adding a new cert = one entry here + a re-run. ACME order happens
+  once; subsequent runs are no-ops while the cert is valid. With
+  HTTP-01/TLS-ALPN-01 a new FQDN needs its own entry (or a new `sans`
+  item), which triggers a new order; wildcard certs avoid that.
 
 ### Org-wide middleware library
 
@@ -380,15 +408,20 @@ Replaces the hand-managed static config with a parameterised template.
 Notable differences from a typical hand-managed config:
 
 * `entryPoints.web.http.redirections` performs the HTTP→HTTPS redirect
-  at the entrypoint. With DNS-01 there is no challenge traffic on :80
-  to preserve, so the catch-all `redirect-to-https` router and every
-  per-site `*-acme` router go away entirely.
+  at the entrypoint, so the catch-all `redirect-to-https` router and
+  every per-site `*-acme` router go away. Whether the entrypoint
+  redirect lets HTTP-01 challenge requests through is an open question
+  (see Open questions); it must be verified before HTTP-01 is relied on.
 * `certificatesResolvers` is rendered as one block per entry in
-  `traefik_acme_resolvers` — each with its own `dnsChallenge.provider`,
-  `dnsChallenge.propagation.delayBeforeChecks`, propagation `resolvers`
-  list, and a per-resolver `storage` path
-  (`{{ traefik_certs_dir }}/acme-<name>.json`). No `httpChallenge`
-  block.
+  `traefik_acme_resolvers`, each with a per-resolver `storage` path
+  (`{{ traefik_certs_dir }}/acme-<name>.json`) and one challenge block
+  chosen by the resolver's `challenge`:
+  * `dns` (default) — `dnsChallenge.provider`,
+    `dnsChallenge.propagation.delayBeforeChecks`, and the propagation
+    `resolvers` list.
+  * `http` — `httpChallenge.entryPoint` (default `web`; an optional
+    `entrypoint` key on the resolver overrides it).
+  * `tls-alpn` — an empty `tlsChallenge` block.
 * `forwardedHeaders.trustedIPs` driven by `traefik_trusted_ips`.
 * `providers.docker.network: "{{ traefik_docker_network }}"` and
   `exposedByDefault: false` per role default.
@@ -431,16 +464,26 @@ the new domain set.
 
 ## TLS / ACME
 
-Multiple ACME resolvers, all backed by Let's Encrypt DNS-01, each
-bound to a different DNS provider via lego. Built-in support for
-**IONOS**, **AWS Route53**, **CloudFlare**, and **RFC 2136**; any
-other lego DNS provider can be added by appending an entry to
-`traefik_acme_resolvers`. Each wildcard cert spec names its resolver,
-so one host can serve cert sets issued through different providers
-concurrently.
+Multiple ACME resolvers, all backed by Let's Encrypt, each with its
+own challenge type (`challenge:` on the resolver entry):
 
-Provider configuration (rendered into static config, one block per
-resolver in `traefik_acme_resolvers`):
+* `dns` (default) — DNS-01 via lego, bound to a DNS provider.
+  Built-in support for **IONOS**, **AWS Route53**, **CloudFlare**, and
+  **RFC 2136**; any other lego DNS provider can be added by appending
+  an entry to `traefik_acme_resolvers`. The only type that can issue
+  wildcards.
+* `http` — HTTP-01 on the `web` entrypoint. No provider, no
+  credentials. Per-FQDN certs only. Built-in resolver: `http01`.
+* `tls-alpn` — TLS-ALPN-01 on the `websecure` entrypoint. No provider,
+  no credentials. Per-FQDN certs only. Built-in resolver: `tlsalpn01`.
+
+Each cert spec names its resolver, so one host can serve certs issued
+through different providers and challenge types concurrently. Choose
+`http`/`tls-alpn` only for domains whose DNS can't be delegated to an
+API-capable provider; otherwise prefer `dns` wildcards.
+
+Provider configuration for `dns` resolvers (rendered into static
+config, one block per resolver in `traefik_acme_resolvers`):
 
 ```yaml
 certificatesResolvers:
@@ -534,6 +577,20 @@ Storage and lifecycle:
   initial bring-up — applies to every resolver. Once happy, clear the
   variable, delete every `acme-*.json` once, re-run to obtain prod
   certs.
+
+Operational properties of HTTP-01 and TLS-ALPN-01:
+
+* **Inbound reachability is required at issuance and renewal.**
+  HTTP-01 needs :80 and TLS-ALPN-01 needs :443 open to the internet on
+  the proxy; the firewall is upstream and not managed by this role.
+  A blocked port fails renewal, so certs eventually expire.
+* **No credentials, no DNS dependency.** Nothing is added to
+  `.env.secrets` for these resolvers.
+* **No wildcards.** Every new FQDN is a new cert entry or `sans` item
+  and a new ACME order, which counts against Let's Encrypt rate limits;
+  use LE staging (`traefik_acme_caserver`) while iterating.
+* **DNS A/AAAA records must already point at the proxy** before the
+  order is attempted, unlike DNS-01.
 
 Operational properties of DNS-01:
 
@@ -630,13 +687,15 @@ one playbook run end-to-end if the consumer wants it.
 1. `preflight.yml` — assert required vars present (`traefik_acme_email`
    when ACME enabled; for every cert, the bound resolver exists in
    `traefik_acme_resolvers` and that resolver's env vars all resolve
-   to non-empty values; non-empty `traefik_sites`; every site's FQDNs
-   covered by at least one cert; `traefik_default_cert` names a real
-   entry), check Docker socket reachable. Cred checks use
-   `no_log: true`.
+   to non-empty values — `dns` resolvers only, since `http` and
+   `tls-alpn` resolvers have no env; non-empty `traefik_sites`; every
+   site's FQDNs covered by at least one cert; no `*.` pattern on a cert
+   bound to an `http` or `tls-alpn` resolver; `traefik_default_cert`
+   names a real entry on a `dns` resolver), check Docker socket
+   reachable. Cred checks use `no_log: true`.
 2. `install.yml` — create directories, render `compose.yml`,
    `traefik.yml`, write `.env.secrets` (`0600`) with the env vars
-   for every defined resolver.
+   for every defined `dns` resolver.
 3. `network.yml` — create `traefik_proxy` Docker network.
 4. `sites.yml` — render `dynamic/middlewares.yml`, `dynamic/sites.yml`,
    `dynamic/tls.yml`. Notify a no-op handler (file provider
@@ -699,9 +758,10 @@ override the default cert when the VM serves only non-default domains.
 
 Strategy: stand the role-managed deploy up on a fresh path
 (`/opt/traefik`) without touching the existing hand-managed tree. The
-existing setup uses HTTP-01 per-FQDN certs; the new setup uses DNS-01
-wildcards, so a fresh `acme.json` is required (the old one's per-FQDN
-certs aren't reused). Validate against LE staging first.
+existing setup uses HTTP-01 per-FQDN certs. The role can keep those via
+an `http01` resolver and per-FQDN cert entries, or move to DNS-01
+wildcards; either way a fresh `acme-<resolver>.json` is required (the
+old single `acme.json` isn't reused). Validate against LE staging first.
 
 Step-by-step:
 
@@ -838,6 +898,17 @@ traefik_sites:
 
 ## Open questions
 
+* **HTTP-01 vs the `web` entrypoint redirect.** The static config
+  redirects all :80 traffic to HTTPS at the entrypoint. Believed (not
+  verified) to leave `/.well-known/acme-challenge/` reachable for
+  HTTP-01. Verify with a real issuance against LE staging before
+  relying on `http` resolvers; if the redirect interferes, the fix is
+  an entrypoint-level exemption, not per-site `*-acme` routers.
+* **Default store cert on HTTP-01/TLS-ALPN-01.** `traefik_default_cert`
+  drives `defaultGeneratedCert`, which issues at startup. Preflight
+  rejects non-`dns` resolvers there until this is verified on staging;
+  hosts with only HTTP-01 certs fall back to Traefik's self-signed
+  default cert.
 * **Backup of acme-*.json** — out of scope for this role. With
   wildcard certs the blast radius of losing one is bigger (one
   wildcard covers many sites). Decide which role / cron job owns the
@@ -856,6 +927,13 @@ traefik_sites:
 
 ## Future work (not built now)
 
+* **Per-site auto-derived certs.** Let a site name an `http`/`tls-alpn`
+  resolver and have the role request a cert for its `fqdns` with no
+  `traefik_wildcard_certs` entry. Not built: it adds a second cert
+  model beside the current one.
+* **Neutral cert list name.** `traefik_wildcard_certs` also holds
+  non-wildcard certs. A rename to `traefik_certs` (with the old name as
+  a deprecated alias) was deferred as a breaking-change risk.
 * **Drop the `traefik_sites | length > 0` preflight assertion.** As
   more co-located containers adopt Docker labels for self-registration,
   `traefik_sites` will shrink toward empty. An empty list is a valid
