@@ -133,10 +133,14 @@ argument_specs:
       traefik_acme_resolvers:
         type: dict
         description: >-
-          Resolver definitions keyed by name. Each value has provider (str),
-          delay_before_check (int), env (dict of provider env vars), and
-          optionally disable_propagation_check (bool) and dns_resolvers (list).
-          Defaults define ionos, route53, cloudflare and rfc2136.
+          Resolver definitions keyed by name. Each value has an optional
+          challenge (dns, http or tls-alpn; default dns). A dns resolver
+          has provider (str), delay_before_check (int), env (dict of
+          provider env vars), and optionally disable_propagation_check
+          (bool) and dns_resolvers (list). http and tls-alpn resolvers take
+          no provider or env, and issue per-FQDN certs only (no wildcards).
+          Defaults define ionos, route53, cloudflare and rfc2136 (dns) plus
+          http01 (http) and tlsalpn01 (tls-alpn).
       traefik_ionos_api_key:
         type: str
         default: ""

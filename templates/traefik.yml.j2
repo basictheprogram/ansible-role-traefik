@@ -74,6 +74,8 @@ certificatesResolvers:
 {% if traefik_acme_caserver %}
       caServer: "{{ traefik_acme_caserver }}"
 {% endif %}
+{% set challenge = resolver.challenge | default('dns') %}
+{% if challenge == 'dns' %}
       dnsChallenge:
         provider: {{ resolver.provider }}
         propagation:
@@ -83,5 +85,11 @@ certificatesResolvers:
 {% for r in (resolver.dns_resolvers | default(traefik_acme_default_dns_resolvers)) %}
           - "{{ r }}"
 {% endfor %}
+{% elif challenge == 'http' %}
+      httpChallenge:
+        entryPoint: {{ resolver.entrypoint | default('web') }}
+{% elif challenge == 'tls-alpn' %}
+      tlsChallenge: {}
+{% endif %}
 {% endfor %}
 {% endif %}
