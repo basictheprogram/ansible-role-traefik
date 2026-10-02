@@ -282,10 +282,10 @@ specific regression or design change requires it.
        of dns/http/tls-alpn (the template silently omits the challenge
        block for an unknown value) and that `dns` resolvers have a
        `provider`.
-    d. Molecule — enable ACME in converge with a fake-credential
+    d. ✅ Molecule — enable ACME in converge with a fake-credential
        `dns` resolver plus `http` and `tls-alpn` ones; assert the
        rendered `traefik.yml` and the preflight failures.
-    e. `README.md` — prerequisites (:80/:443 reachable, DNS records
+    e. ✅ `README.md` — prerequisites (:80/:443 reachable, DNS records
        already pointing at the proxy, LE staging first).
     f. Verify against LE staging; settle the two open questions above.
 24. Expand `molecule/default/tests/test_default.py` — verify dynamic

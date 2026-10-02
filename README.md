@@ -10,6 +10,8 @@ Deploys [Traefik v3](https://doc.traefik.io/traefik/) as a reverse proxy and
 TLS edge on a single Docker host. DNS-01 ACME via RFC 2136 (works with BIND9,
 Knot, PowerDNS, and any provider with a TSIG-authenticated update endpoint),
 wildcard certs, and file-provider dynamic config are the primary use case.
+HTTP-01 and TLS-ALPN-01 resolvers (per-FQDN certs, no wildcards) are also
+supported for domains whose DNS can't be delegated to an API-capable provider.
 
 > For full architecture, schemas, and design decisions see [DESIGN.md](DESIGN.md).
 
@@ -55,8 +57,9 @@ traefik_acme_enabled: true
 traefik_acme_email: "ops@example.com"      # required when ACME enabled
 traefik_acme_caserver: ""                  # set to LE staging during bring-up
 
-# One entry per (LE account, DNS provider) pair. Credentials are written
-# to .env.secrets (0600) and never appear in YAML.
+# One entry per (LE account, challenge/provider) pair. `challenge` is dns
+# (the default), http, or tls-alpn. Credentials are written to
+# .env.secrets (0600) and never appear in YAML.
 traefik_acme_resolvers:
   ionos:
     provider: ionos
@@ -80,6 +83,10 @@ traefik_acme_resolvers:
     delay_before_check: 120
     env:
       RFC2136_TSIG_API_KEY: "{{ traefik_rfc2136_tsig_api_key }}"  # vault this
+  http01:
+    challenge: http          # HTTP-01: no provider, no credentials
+  tlsalpn01:
+    challenge: tls-alpn      # TLS-ALPN-01: no provider, no credentials
 
 # Wildcard certs — one entry per cert, bound to a resolver.
 # Every router whose FQDNs fall under main/sans reuses the same cert.
@@ -89,14 +96,45 @@ traefik_wildcard_certs:
     main: "*.portal.example.com"
     sans:
       - "*.dev.example.com"
+  - name: legacy-example-org    # HTTP-01: exact FQDNs only, no wildcards
+    resolver: http01
+    main: "legacy.example.org"
+    sans:
+      - "www.legacy.example.org"
 
-traefik_default_cert: example-com    # installed in the TLS default store
+traefik_default_cert: example-com    # installed in the TLS default store;
+                                     # must be on a dns resolver
 ```
+
+#### HTTP-01 and TLS-ALPN-01
+
+Use these only for domains whose DNS can't be delegated to a provider
+the `dns` challenge supports; prefer `dns` wildcards otherwise. Bind a
+cert to the built-in `http01` or `tlsalpn01` resolver (or your own with
+`challenge: http` / `tls-alpn`). They differ from `dns` in four ways:
+
+- **No wildcards.** Let's Encrypt only issues wildcards via DNS-01.
+  List exact FQDNs in `main` and `sans`; preflight fails if a `*.` name
+  is bound to an `http` or `tls-alpn` resolver. Every new FQDN is a new
+  ACME order, which counts against Let's Encrypt rate limits.
+- **Inbound reachability.** HTTP-01 needs port 80, and TLS-ALPN-01 needs
+  port 443, reachable from the internet on this host. The role does not
+  manage firewalls; open the port upstream.
+- **DNS first.** The A/AAAA records for every FQDN must already point at
+  this host before the first run.
+- **No credentials.** Nothing is added to `.env.secrets` for these
+  resolvers.
+
+`traefik_default_cert` must name a cert on a `dns` resolver; preflight
+rejects `http`/`tls-alpn` there. HTTP-01 has not yet been verified
+against Let's Encrypt staging alongside this role's `web` entrypoint
+HTTP-to-HTTPS redirect (see DESIGN.md, Open questions), so run the
+first issuance with `traefik_acme_caserver` set to staging.
 
 #### DNS provider credentials
 
-Credentials referenced by `traefik_acme_resolvers` must be vaulted on
-the consumer side. Only populate variables for resolvers actually
+Credentials referenced by `dns` resolvers in `traefik_acme_resolvers`
+must be vaulted on the consumer side. Only populate variables for resolvers actually
 referenced by a cert — the others can stay empty.
 
 | Variable | Used by | Notes |
