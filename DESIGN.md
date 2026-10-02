@@ -915,11 +915,11 @@ traefik_sites:
 ## Open questions
 
 * **HTTP-01 vs the `web` entrypoint redirect.** The static config
-  redirects all :80 traffic to HTTPS at the entrypoint. Believed (not
-  verified) to leave `/.well-known/acme-challenge/` reachable for
-  HTTP-01. Verify with a real issuance against LE staging before
-  relying on `http` resolvers; if the redirect interferes, the fix is
-  an entrypoint-level exemption, not per-site `*-acme` routers.
+  redirects all :80 traffic to HTTPS at the entrypoint. Reported working
+  (2026-10-02): the role issued a Let's Encrypt cert for
+  nexxus.cross-fire.org through the `http01` resolver with the redirect
+  in place. This was a production issuance by the maintainer, not an LE
+  staging run, so it is not yet captured by any automated test.
 * **Default store cert on HTTP-01/TLS-ALPN-01.** `traefik_default_cert`
   drives `defaultGeneratedCert`, which issues at startup. Preflight
   rejects non-`dns` resolvers there until this is verified on staging;

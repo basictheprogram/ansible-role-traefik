@@ -190,9 +190,9 @@ linking to the section rather than guessing:
 * Multi-region rollout order.
 * `delay_before_check` post-pilot tuning — 120 s is a defensive
   default; tune down once production propagation lag is measured.
-* HTTP-01 vs the `web` entrypoint's HTTP→HTTPS redirect: believed to
-  leave the ACME challenge path reachable, not verified. Check on LE
-  staging before relying on `http` resolvers. See `DESIGN.md`.
+* HTTP-01 vs the `web` entrypoint's HTTP→HTTPS redirect: reported
+  working in production on 2026-10-02 (nexxus.cross-fire.org issued via
+  `http01`); not covered by an automated test. See `DESIGN.md`.
 * `traefik_default_cert` on an `http`/`tls-alpn` resolver: rejected in
   preflight until verified on LE staging. See `DESIGN.md`.
 
@@ -287,7 +287,9 @@ specific regression or design change requires it.
        rendered `traefik.yml` and the preflight failures.
     e. ✅ `README.md` — prerequisites (:80/:443 reachable, DNS records
        already pointing at the proxy, LE staging first).
-    f. Verify against LE staging; settle the two open questions above.
+    f. Partly done: HTTP-01 with the `web` redirect reported working in
+       production (2026-10-02). Still open: `traefik_default_cert` on a
+       non-`dns` resolver.
 24. Expand `molecule/default/tests/test_default.py` — verify dynamic
     config files are rendered, secrets file has mode 0600, container
     is healthy.
