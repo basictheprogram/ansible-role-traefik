@@ -276,7 +276,7 @@ specific regression or design change requires it.
        `tlsalpn01` resolvers; `templates/traefik.yml.j2` — render
        `dnsChallenge`, `httpChallenge` or `tlsChallenge` per resolver;
        `templates/env.secrets.j2` — tolerate resolvers without `env`.
-    c. `tasks/preflight.yml` — credential check for `dns` resolvers
+    c. ✅ `tasks/preflight.yml` — credential check for `dns` resolvers
        only; reject `*.` on non-`dns` resolvers; require a `dns`
        resolver for `traefik_default_cert`; assert `challenge` is one
        of dns/http/tls-alpn (the template silently omits the challenge

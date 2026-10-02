@@ -21,6 +21,33 @@
     quiet: true
   when: traefik_acme_enabled
 
+- name: Preflight | every resolver challenge is dns, http, or tls-alpn
+  ansible.builtin.assert:
+    that:
+      - item.value.challenge | default('dns') in ['dns', 'http', 'tls-alpn']
+    fail_msg: >-
+      resolver '{{ item.key }}' has challenge '{{ item.value.challenge | default('dns') }}';
+      it must be one of dns, http, tls-alpn
+    quiet: true
+  loop: "{{ traefik_acme_resolvers | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: traefik_acme_enabled
+
+- name: Preflight | every dns resolver sets a provider
+  ansible.builtin.assert:
+    that:
+      - item.value.provider is defined
+      - item.value.provider | length > 0
+    fail_msg: "dns resolver '{{ item.key }}' must set provider"
+    quiet: true
+  loop: "{{ traefik_acme_resolvers | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - traefik_acme_enabled
+    - item.value.challenge | default('dns') == 'dns'
+
 - name: Preflight | every cert resolver is defined in traefik_acme_resolvers
   ansible.builtin.assert:
     that:
@@ -34,6 +61,22 @@
     label: "{{ item.name }}"
   when: traefik_acme_enabled
 
+- name: Preflight | http and tls-alpn certs have no wildcard names
+  ansible.builtin.assert:
+    that:
+      - ([item.main] + (item.sans | default([]))) | select('match', '^[*][.]') | list | length == 0
+    fail_msg: >-
+      cert '{{ item.name }}' uses resolver '{{ item.resolver }}'
+      ({{ traefik_acme_resolvers[item.resolver].challenge }}), which cannot issue
+      wildcard certs; use a dns resolver or list exact FQDNs
+    quiet: true
+  loop: "{{ traefik_wildcard_certs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - traefik_acme_enabled
+    - traefik_acme_resolvers[item.resolver].challenge | default('dns') != 'dns'
+
 - name: Preflight | traefik_default_cert names a real cert
   ansible.builtin.assert:
     that:
@@ -43,6 +86,21 @@
       any entry in traefik_wildcard_certs
     quiet: true
   when: traefik_default_cert | length > 0
+
+- name: Preflight | traefik_default_cert uses a dns resolver
+  ansible.builtin.assert:
+    that:
+      - >-
+        traefik_acme_resolvers[
+          (traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | first).resolver
+        ].challenge | default('dns') == 'dns'
+    fail_msg: >-
+      traefik_default_cert '{{ traefik_default_cert }}' is bound to a non-dns
+      resolver; the default store cert must use a dns resolver
+    quiet: true
+  when:
+    - traefik_acme_enabled
+    - traefik_default_cert | length > 0
 
 - name: Preflight | explicit site.cert exists in traefik_wildcard_certs
   ansible.builtin.assert:
@@ -64,7 +122,7 @@
         | map(attribute='resolver')
         | unique
         | map('extract', traefik_acme_resolvers)
-        | map(attribute='env')
+        | map(attribute='env', default={})
         | map('dict2items')
         | flatten
       }}
