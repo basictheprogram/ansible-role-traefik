@@ -27,6 +27,12 @@ traefik_trusted_ips:
   - "172.16.0.0/12"
   - "192.168.0.0/16"
 
+# TLS options (rendered into dynamic/tls.yml).
+# sniStrict rejects handshakes whose SNI doesn't match a configured cert,
+# including clients that send no SNI (e.g. a monitor connecting by IP).
+# Set false to serve the default certificate to those clients instead.
+traefik_tls_sni_strict: true
+
 # Logging
 traefik_log_level: INFO
 traefik_log_format: json

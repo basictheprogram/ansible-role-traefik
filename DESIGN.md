@@ -244,6 +244,9 @@ traefik_default_servers_transport:
     idleConnTimeout: 300s
   maxIdleConnsPerHost: 200
 
+# TLS options (dynamic/tls.yml)
+traefik_tls_sni_strict: true             # false serves the default cert to no/unknown SNI
+
 # Verification
 traefik_verify_healthcheck: true
 traefik_verify_healthcheck_timeout: 60   # seconds
@@ -577,6 +580,19 @@ Storage and lifecycle:
   initial bring-up — applies to every resolver. Once happy, clear the
   variable, delete every `acme-*.json` once, re-run to obtain prod
   certs.
+
+TLS options (rendered into `dynamic/tls.yml`):
+
+* `minVersion: VersionTLS12` and a fixed ECDHE GCM / ChaCha20 cipher
+  list. Clients that only offer CBC or RSA key-exchange suites fail the
+  handshake.
+* `sniStrict` follows `traefik_tls_sni_strict` (default `true`). With it
+  on, a client that sends no SNI, or an SNI matching no configured
+  cert, gets an `unrecognized name` alert. That breaks monitors that
+  connect by IP; set it `false` on a host to serve the default
+  certificate to them instead (the default cert is Traefik's self-signed
+  one unless `traefik_default_cert` is set, so such a monitor may then
+  report a hostname mismatch).
 
 Operational properties of HTTP-01 and TLS-ALPN-01:
 

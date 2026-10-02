@@ -303,6 +303,7 @@ that one cert. Preflight fails otherwise.
 | `traefik_entrypoint_websecure_port` | `443` | HTTPS entrypoint port |
 | `traefik_cups_enabled` | `false` | Enable the IPP/CUPS entrypoint on `traefik_entrypoint_cups_port` |
 | `traefik_entrypoint_cups_port` | `631` | IPP/CUPS printing entrypoint port |
+| `traefik_tls_sni_strict` | `true` | Reject TLS handshakes whose SNI matches no configured cert, including clients that send no SNI (such as a monitor connecting by IP). Set `false` to serve the default certificate to them instead. |
 | `traefik_log_level` | `INFO` | Traefik log level |
 | `traefik_compose_log_driver` | `journald` | Docker logging driver for the Traefik container |
 | `traefik_verify_healthcheck` | `true` | Wait for container healthcheck after start |

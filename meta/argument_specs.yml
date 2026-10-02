@@ -81,6 +81,14 @@ argument_specs:
         elements: str
         default: ["127.0.0.1/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
         description: CIDRs trusted for forwarded headers on the entrypoints.
+      traefik_tls_sni_strict:
+        type: bool
+        default: true
+        description: >-
+          Set sniStrict in the default TLS options. When true, handshakes
+          whose SNI matches no configured certificate (including clients that
+          send no SNI) are rejected; when false, Traefik serves its default
+          certificate to them.
       traefik_log_level:
         type: str
         default: INFO
