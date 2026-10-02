@@ -17,10 +17,12 @@
       when: ansible_facts.os_family == 'RedHat'
 
   vars:
-    # ACME disabled — molecule runs without real DNS provider credentials.
-    # Resolver is defined so .env.secrets renders with realistic content;
-    # credentials are intentionally fake test values.
-    traefik_acme_enabled: false
+    # ACME enabled so every resolver challenge type is rendered into
+    # traefik.yml. Traefik is never started in molecule (the compose tasks
+    # are tagged molecule-notest), so nothing contacts a CA or DNS provider;
+    # the credentials below are intentionally fake test values.
+    traefik_acme_enabled: true
+    traefik_acme_email: "molecule@example.test"
 
     # journald is unavailable on Docker Desktop; use json-file for molecule.
     traefik_compose_log_driver: json-file
@@ -43,6 +45,10 @@
           AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE"
           AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
           AWS_REGION: us-east-1
+      http01:
+        challenge: http
+      tlsalpn01:
+        challenge: tls-alpn
 
     traefik_wildcard_certs:
       - name: test-cert
@@ -50,6 +56,13 @@
         main: "*.example.test"
         sans:
           - "www.example.test"
+      # Non-dns challenges issue exact FQDNs only (no wildcards).
+      - name: http-cert
+        resolver: http01
+        main: "http.example.test"
+      - name: alpn-cert
+        resolver: tlsalpn01
+        main: "alpn.example.test"
 
     traefik_default_cert: test-cert
 
@@ -73,5 +86,65 @@
           - open.example.test
         backend: http://127.0.0.1:9090
 
+      - name: http-app
+        fqdns:
+          - http.example.test
+        backend: http://127.0.0.1:9091
+        cert: http-cert
+
+      - name: alpn-app
+        fqdns:
+          - alpn.example.test
+        backend: http://127.0.0.1:9092
+        cert: alpn-cert
+
   roles:
     - role: realtime.traefik
+
+# Negative preflight cases: each block runs only the role's preflight tasks
+# with one invalid setting and asserts it fails with the expected message.
+- name: Converge | preflight rejects invalid ACME resolver settings
+  hosts: all
+  gather_facts: true
+  vars:
+    _base_resolvers:
+      rfc2136:
+        provider: rfc2136
+        delay_before_check: 0
+        env:
+          RFC2136_TSIG_API_KEY: "fake-test-key"
+      http01:
+        challenge: http
+    _preflight_cases:
+      - name: wildcard on an http resolver
+        expect: "cannot issue wildcard certs"
+        vars:
+          traefik_wildcard_certs:
+            - { name: bad, resolver: http01, main: "*.example.test" }
+      - name: wildcard san on an http resolver
+        expect: "cannot issue wildcard certs"
+        vars:
+          traefik_wildcard_certs:
+            - { name: bad, resolver: http01, main: "example.test", sans: ["*.example.test"] }
+      - name: default cert on an http resolver
+        expect: "must use a dns resolver"
+        vars:
+          traefik_wildcard_certs:
+            - { name: bad, resolver: http01, main: "example.test" }
+          traefik_default_cert: bad
+      - name: unknown challenge value
+        expect: "must be one of dns, http, tls-alpn"
+        vars:
+          traefik_acme_resolvers:
+            bogus: { challenge: bogus }
+      - name: dns resolver without provider
+        expect: "must set provider"
+        vars:
+          traefik_acme_resolvers:
+            noprovider: { delay_before_check: 0, env: {} }
+  tasks:
+    - name: Preflight case | {{ item.name }}
+      ansible.builtin.include_tasks: tasks/preflight_case.yml
+      loop: "{{ _preflight_cases }}"
+      loop_control:
+        label: "{{ item.name }}"

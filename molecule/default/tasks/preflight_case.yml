@@ -1,0 +1,32 @@
+---
+# Runs the role's preflight tasks once with the settings in `item.vars` and
+# asserts it fails with a message containing `item.expect`.
+- name: Preflight case | run preflight with invalid settings
+  block:
+    - name: Preflight case | include role preflight
+      ansible.builtin.include_role:
+        name: realtime.traefik
+        tasks_from: preflight.yml
+      vars:
+        traefik_acme_enabled: true
+        traefik_acme_email: "molecule@example.test"
+        traefik_acme_resolvers: "{{ item.vars.traefik_acme_resolvers | default(_base_resolvers) }}"
+        traefik_wildcard_certs: "{{ item.vars.traefik_wildcard_certs | default([]) }}"
+        traefik_default_cert: "{{ item.vars.traefik_default_cert | default('') }}"
+
+    - name: Preflight case | fail if preflight unexpectedly passed
+      ansible.builtin.fail:
+        msg: "preflight passed but should have failed: {{ item.name }}"
+  rescue:
+    - name: Preflight case | collect the failure text
+      ansible.builtin.set_fact:
+        _preflight_failure_text: >-
+          {{ ansible_failed_result.msg | default('') }}
+          {{ ansible_failed_result.results | default([]) | map(attribute='msg', default='') | join(' ') }}
+
+    - name: Preflight case | assert the expected failure message
+      ansible.builtin.assert:
+        that:
+          - item.expect in _preflight_failure_text
+        fail_msg: "'{{ item.name }}' failed, but not with '{{ item.expect }}': {{ _preflight_failure_text }}"
+        quiet: true

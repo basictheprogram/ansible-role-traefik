@@ -135,6 +135,13 @@ def test_secrets_file_contains_aws_key(host: Host) -> None:
     assert "AWS_REGION=us-east-1" in content
 
 
+def test_secrets_file_has_only_dns_resolver_credentials(host: Host) -> None:
+    """Only the dns resolver's credentials appear; http/tls-alpn have none."""
+    content = host.file("/opt/traefik/.env.secrets").content_string
+    keys = {line.split("=", 1)[0] for line in content.splitlines() if line}
+    assert keys == {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"}
+
+
 def test_no_legacy_single_acme_json(host: Host) -> None:
     """The old single-file HTTP-01 cert store must not exist."""
     assert not host.file("/var/lib/traefik/certs/acme.json").exists
@@ -165,10 +172,40 @@ def test_config_files_are_valid_yaml(host: Host, path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_static_config_no_http_challenge(host: Host) -> None:
-    """DNS-01 only — no httpChallenge block should appear anywhere."""
-    content = host.file("/etc/traefik/traefik.yml").content_string
-    assert "httpChallenge" not in content
+_CHALLENGE_KEYS = {"dnsChallenge", "httpChallenge", "tlsChallenge"}
+
+
+@pytest.mark.parametrize(
+    ("resolver", "challenge_key"),
+    [
+        ("route53", "dnsChallenge"),
+        ("http01", "httpChallenge"),
+        ("tlsalpn01", "tlsChallenge"),
+    ],
+)
+def test_static_config_resolver_has_only_its_challenge(host: Host, resolver: str, challenge_key: str) -> None:
+    """Each resolver renders exactly the challenge block for its type."""
+    cfg = load_yaml(host, "/etc/traefik/traefik.yml")
+    acme: dict[str, Any] = cfg["certificatesResolvers"][resolver]["acme"]
+    assert _CHALLENGE_KEYS & set(acme) == {challenge_key}
+
+
+@pytest.mark.parametrize("resolver", ["route53", "http01", "tlsalpn01"])
+def test_static_config_resolver_storage(host: Host, resolver: str) -> None:
+    cfg = load_yaml(host, "/etc/traefik/traefik.yml")
+    acme: dict[str, Any] = cfg["certificatesResolvers"][resolver]["acme"]
+    assert acme["storage"] == f"/var/lib/traefik/certs/acme-{resolver}.json"
+
+
+def test_static_config_http_challenge_entrypoint(host: Host) -> None:
+    """HTTP-01 is answered on the web entrypoint by default."""
+    cfg = load_yaml(host, "/etc/traefik/traefik.yml")
+    assert cfg["certificatesResolvers"]["http01"]["acme"]["httpChallenge"]["entryPoint"] == "web"
+
+
+def test_static_config_dns_challenge_provider(host: Host) -> None:
+    cfg = load_yaml(host, "/etc/traefik/traefik.yml")
+    assert cfg["certificatesResolvers"]["route53"]["acme"]["dnsChallenge"]["provider"] == "route53"
 
 
 def test_static_config_entrypoint_redirect(host: Host) -> None:
@@ -253,6 +290,21 @@ def test_sites_app_router_applies_security_headers(host: Host) -> None:
     cfg = load_yaml(host, "/etc/traefik/dynamic/sites.yml")
     middlewares: list[str] = cfg["http"]["routers"]["app"]["middlewares"]
     assert any("security-headers" in m for m in middlewares)
+
+
+@pytest.mark.parametrize(
+    ("router", "resolver", "domain"),
+    [
+        ("http-app", "http01", "http.example.test"),
+        ("alpn-app", "tlsalpn01", "alpn.example.test"),
+    ],
+)
+def test_sites_non_dns_router_uses_exact_domain(host: Host, router: str, resolver: str, domain: str) -> None:
+    """Sites pinned to an http/tls-alpn cert request an exact-FQDN cert."""
+    cfg = load_yaml(host, "/etc/traefik/dynamic/sites.yml")
+    tls: dict[str, Any] = cfg["http"]["routers"][router]["tls"]
+    assert tls["certResolver"] == resolver
+    assert tls["domains"][0]["main"] == domain
 
 
 def test_sites_has_default_servers_transport(host: Host) -> None:
