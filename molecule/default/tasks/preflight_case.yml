@@ -11,7 +11,7 @@
         traefik_acme_enabled: true
         traefik_acme_email: "molecule@example.test"
         traefik_acme_resolvers: "{{ item.vars.traefik_acme_resolvers | default(_base_resolvers) }}"
-        traefik_wildcard_certs: "{{ item.vars.traefik_wildcard_certs | default([]) }}"
+        traefik_certs: "{{ item.vars.traefik_certs | default([]) }}"
         traefik_default_cert: "{{ item.vars.traefik_default_cert | default('') }}"
 
     - name: Preflight case | fail if preflight unexpectedly passed

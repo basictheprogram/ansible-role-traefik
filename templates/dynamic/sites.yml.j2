@@ -1,12 +1,12 @@
 ---
 {#
   fqdn_cert(fqdn) — returns the name of the first cert in
-  traefik_wildcard_certs whose main or sans covers fqdn.
+  traefik_certs whose main or sans covers fqdn.
   Supports exact matches and single-label wildcard (*.example.com).
 #}
 {%- macro fqdn_cert(fqdn) -%}
 {%- set ns = namespace(result='') -%}
-{%- for cert in traefik_wildcard_certs -%}
+{%- for cert in traefik_certs -%}
 {%- if not ns.result -%}
 {%- for pat in ([cert.main] + (cert.sans | default([]))) -%}
 {%- if not ns.result -%}
@@ -52,7 +52,7 @@ http:
 {#   Emit one router per cert group #}
 {% for cert_name, cert_fqdns in grp.groups.items() %}
 {% set router_name = site.name if (grp.groups | length == 1) else site.name + '-' + cert_name %}
-{% set cert_obj = traefik_wildcard_certs | selectattr('name', 'equalto', cert_name) | first | default({}) %}
+{% set cert_obj = traefik_certs | selectattr('name', 'equalto', cert_name) | first | default({}) %}
 
     {{ router_name }}:
       entryPoints:

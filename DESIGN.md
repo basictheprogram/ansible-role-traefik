@@ -225,9 +225,9 @@ traefik_acme_resolvers:
 traefik_rfc2136_tsig_api_key: ""
 
 # Wildcard certs and the default cert (see Schemas).
-traefik_wildcard_certs: []
+traefik_certs: []
 traefik_default_cert: ""                 # name of an entry in
-                                         # traefik_wildcard_certs
+                                         # traefik_certs
 
 # Providers
 traefik_provider_docker_enabled: true
@@ -272,7 +272,7 @@ traefik_sites:
     backend: http://10.0.0.11:8000    # required; full URL
     backend_tls_skip_verify: false    # optional, default false
     cert: example-com                 # optional; name from
-                                      # traefik_wildcard_certs. Defaults
+                                      # traefik_certs. Defaults
                                       # to traefik_default_cert.
     allowlist:                        # optional; references group names
       - corp_office
@@ -299,11 +299,11 @@ Notes:
   configured entryPoints); referencing an undefined name silently drops
   routing.
 * Cert resolution: for each FQDN, the role finds the cert spec from
-  `traefik_wildcard_certs` whose `main` or `sans` covers it. If
+  `traefik_certs` whose `main` or `sans` covers it. If
   `cert:` is set on the site, every FQDN must fall under that cert;
   preflight fails otherwise. If `cert:` is unset, FQDNs are grouped
   by their best-covering cert and the site emits one router per
-  group (see `traefik_wildcard_certs` notes for the multi-cert split
+  group (see `traefik_certs` notes for the multi-cert split
   rule).
 
 ### `traefik_allowlist_groups`
@@ -331,18 +331,19 @@ Comments next to each CIDR are preserved through templating (Jinja can
 emit them) so the per-IP review-date metadata isn't lost when the
 middleware is generated.
 
-### `traefik_wildcard_certs`
+### `traefik_certs`
 
 A list of LE certificates to issue and renew. Each entry binds to a
 named resolver from `traefik_acme_resolvers` and produces one ACME
 order against that resolver. Every router whose FQDNs fall under this
-entry's `main` + `sans` reuses the same cert. Despite the name, the
-list also holds non-wildcard certs: an entry bound to an `http` or
-`tls-alpn` resolver lists exact FQDNs (see the notes below). The name
-is kept to avoid a breaking rename; see Future work.
+entry's `main` + `sans` reuses the same cert. The list holds both
+wildcard certs (`dns` resolvers) and exact-FQDN certs (`http` and
+`tls-alpn` resolvers; see the notes below). It was previously named
+`traefik_wildcard_certs`; the old name is no longer read, and preflight
+fails with instructions if it is still set.
 
 ```yaml
-traefik_wildcard_certs:
+traefik_certs:
   - name: example-com              # internal id; referenced by sites
     resolver: rfc2136              # resolver name must match a key in traefik_acme_resolvers
     main: "*.portal.example.com"
@@ -459,7 +460,7 @@ then `traefik_default_middlewares`, then `extra_middlewares`.
 
 Templates use atomic write + Traefik's `watch: true` file provider,
 so a config change reloads routes without restarting the container.
-Adding a new wildcard scope to `traefik_wildcard_certs` also reloads;
+Adding a new wildcard scope to `traefik_certs` also reloads;
 the resolver issues the cert in the background once a router references
 the new domain set.
 
@@ -758,7 +759,7 @@ inventory/
 ```
 
 `group_vars/all/traefik.yml` defines `traefik_allowlist_groups`,
-`traefik_wildcard_certs`, `traefik_default_cert`, and any org-wide
+`traefik_certs`, `traefik_default_cert`, and any org-wide
 overrides. `vault_traefik.yml` holds DNS provider credentials —
 `traefik_ionos_api_key`, `traefik_route53_access_key_id` /
 `traefik_route53_secret_access_key`, `traefik_cloudflare_api_token`,
@@ -789,7 +790,7 @@ Step-by-step:
      `route53:ListHostedZonesByName` scoped to the relevant hosted
      zone(s).
 2. Add the proxy host to inventory; populate `traefik_sites` from your
-   current dynamic configs and set `traefik_wildcard_certs` /
+   current dynamic configs and set `traefik_certs` /
    `traefik_default_cert`. Set `traefik_acme_email` and
    `traefik_acme_caserver` to LE staging.
 3. Run the role. Verify: container healthcheck green, each
@@ -815,7 +816,7 @@ BIND9 instance, `.org` on another), use two cert specs with separate
 resolvers pointing at each nameserver:
 
 ```yaml
-traefik_wildcard_certs:
+traefik_certs:
   - name: example-com
     resolver: rfc2136-com        # resolver key defined in traefik_acme_resolvers
     main: "*.portal.example.com"
@@ -945,11 +946,8 @@ traefik_sites:
 
 * **Per-site auto-derived certs.** Let a site name an `http`/`tls-alpn`
   resolver and have the role request a cert for its `fqdns` with no
-  `traefik_wildcard_certs` entry. Not built: it adds a second cert
+  `traefik_certs` entry. Not built: it adds a second cert
   model beside the current one.
-* **Neutral cert list name.** `traefik_wildcard_certs` also holds
-  non-wildcard certs. A rename to `traefik_certs` (with the old name as
-  a deprecated alias) was deferred as a breaking-change risk.
 * **Drop the `traefik_sites | length > 0` preflight assertion.** As
   more co-located containers adopt Docker labels for self-registration,
   `traefik_sites` will shrink toward empty. An empty list is a valid

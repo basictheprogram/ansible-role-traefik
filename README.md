@@ -45,6 +45,30 @@ roles:
     version: main
 ```
 
+## Upgrading
+
+**`traefik_wildcard_certs` was renamed to `traefik_certs`.** The list holds
+exact-FQDN certs issued with HTTP-01 or TLS-ALPN-01 as well as wildcard certs,
+so the old name was misleading. The old name is no longer read: if it is still
+set anywhere in your inventory, preflight fails immediately with an explanation
+rather than silently ignoring it. To upgrade, rename the variable wherever you
+set it (`host_vars`, `group_vars`, or playbook vars); the entries themselves
+are unchanged:
+
+```yaml
+# before
+traefik_wildcard_certs:
+  - name: example-com
+    resolver: cloudflare
+    main: "*.example.com"
+
+# after
+traefik_certs:
+  - name: example-com
+    resolver: cloudflare
+    main: "*.example.com"
+```
+
 ## Role Variables
 
 All variables with their defaults live in `defaults/main.yml`. The key
@@ -90,7 +114,7 @@ traefik_acme_resolvers:
 
 # Wildcard certs — one entry per cert, bound to a resolver.
 # Every router whose FQDNs fall under main/sans reuses the same cert.
-traefik_wildcard_certs:
+traefik_certs:
   - name: example-com
     resolver: cloudflare          # must match a key in traefik_acme_resolvers
     main: "*.portal.example.com"
@@ -200,10 +224,10 @@ traefik_sites:
 | Field | Required | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `name` | yes | — | Used as the router/service id. Must be unique within `traefik_sites`. |
-| `fqdns` | yes | — | One or more hostnames Traefik will route to this backend. Each must fall under one of the configured `traefik_wildcard_certs`. |
+| `fqdns` | yes | — | One or more hostnames Traefik will route to this backend. Each must fall under one of the configured `traefik_certs`. |
 | `backend` | yes | — | Full upstream URL (`http://host:port` or `https://host:port`). |
 | `backend_tls_skip_verify` | no | `false` | When `backend` is `https://`, set `true` to skip TLS verification of the upstream cert (self-signed backend, internal CA Traefik doesn't trust, or hostname mismatch). Ignored for `http://` backends. Maps to `serversTransport.insecureSkipVerify`. Skipping verification removes MitM protection on the proxy-to-backend hop — prefer fixing the cert chain on real networks. |
-| `cert` | no | `traefik_default_cert` | Name of an entry in `traefik_wildcard_certs`. If set, every FQDN must fall under that cert (preflight fails otherwise). |
+| `cert` | no | `traefik_default_cert` | Name of an entry in `traefik_certs`. If set, every FQDN must fall under that cert (preflight fails otherwise). |
 | `entrypoints` | no | `[websecure]` | Traefik entryPoint names this router listens on. Override when the site must be reachable on a non-standard port. Example: `[cups]` routes the site through port 631 instead of 443. The named entrypoint must be defined by the role (see `traefik_entrypoint_*` variables). |
 | `allowlist` | no | `[]` | List of names from `traefik_allowlist_groups`. The role unions and dedupes the referenced groups into a single `<name>-allowlist` middleware. |
 | `extra_middlewares` | no | `[]` | Extra middleware names appended after the allowlist and the role's default middlewares. Reference file-provider middlewares with the `@file` suffix. |
@@ -252,7 +276,7 @@ it into every site's `extra_middlewares`.
 
 ### Multi-cert behavior
 
-When a site's `fqdns` span multiple entries in `traefik_wildcard_certs`
+When a site's `fqdns` span multiple entries in `traefik_certs`
 (for example, one FQDN under `*.example.com` and another under
 `*.example.org`), the role transparently splits the site into one
 router per cert — `<site>-<cert>`-named, sharing the same backend,
@@ -271,7 +295,7 @@ that one cert. Preflight fails otherwise.
    - `traefik_sites` is a list
    - `traefik_acme_email` is non-empty when ACME is enabled
    - every cert's resolver exists in `traefik_acme_resolvers` with non-empty credentials
-   - `traefik_default_cert` names a real entry in `traefik_wildcard_certs`
+   - `traefik_default_cert` names a real entry in `traefik_certs`
    - every site FQDN is covered by at least one cert
    - Docker socket is reachable at `/var/run/docker.sock`
 2. `install.yml` — create directories, render `compose.yml` and
@@ -414,6 +438,6 @@ provided the structural starting point.
 
 The rewrite modernizes the role for ansible-core 2.20 and Traefik v3,
 replaces the HTTP-01 ACME strategy with DNS-01 via RFC 2136, and
-introduces a new public interface (`traefik_sites`, `traefik_wildcard_certs`,
+introduces a new public interface (`traefik_sites`, `traefik_certs`,
 `traefik_acme_resolvers`). The upstream `traefik_qs_*` and
 `traefik_confkey_*` variable names are not preserved.

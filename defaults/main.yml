@@ -77,7 +77,7 @@ traefik_acme_disable_propagation_check: false
 #             internet). No provider, no env. Per-FQDN certs only.
 #   tls-alpn  TLS-ALPN-01 (needs :443 reachable from the internet). No
 #             provider, no env. Per-FQDN certs only.
-# Only resolvers referenced by traefik_wildcard_certs are contacted;
+# Only resolvers referenced by traefik_certs are contacted;
 # unused entries here are zero-cost (Traefik ignores them at runtime).
 traefik_acme_resolvers:
   ionos:
@@ -117,8 +117,8 @@ traefik_cloudflare_api_token: ""
 traefik_rfc2136_tsig_api_key: ""
 
 # Wildcard certs and the default cert (see DESIGN.md §Schemas)
-traefik_wildcard_certs: []
-traefik_default_cert: "" # must name an entry in traefik_wildcard_certs
+traefik_certs: []
+traefik_default_cert: "" # must name an entry in traefik_certs
 
 # Providers
 traefik_provider_docker_enabled: true

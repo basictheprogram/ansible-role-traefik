@@ -174,7 +174,7 @@ argument_specs:
         default: ""
         no_log: true
         description: RFC 2136 TSIG key; vault on the consumer side.
-      traefik_wildcard_certs:
+      traefik_certs:
         type: list
         elements: dict
         default: []
@@ -200,7 +200,7 @@ argument_specs:
       traefik_default_cert:
         type: str
         default: ""
-        description: Name of the cert installed in the default TLS store; must exist in traefik_wildcard_certs.
+        description: Name of the cert installed in the default TLS store; must exist in traefik_certs.
       traefik_provider_docker_enabled:
         type: bool
         default: true
@@ -227,7 +227,7 @@ argument_specs:
             type: list
             elements: str
             required: true
-            description: One or more hostnames; each must be covered by a cert in traefik_wildcard_certs.
+            description: One or more hostnames; each must be covered by a cert in traefik_certs.
           backend:
             type: str
             required: true

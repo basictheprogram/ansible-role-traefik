@@ -1,5 +1,5 @@
 ---
-{% set default_cert = traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | first | default({}) %}
+{% set default_cert = traefik_certs | selectattr('name', 'equalto', traefik_default_cert) | first | default({}) %}
 tls:
 {% if default_cert %}
   stores:

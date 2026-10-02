@@ -50,7 +50,7 @@
       tlsalpn01:
         challenge: tls-alpn
 
-    traefik_wildcard_certs:
+    traefik_certs:
       - name: test-cert
         resolver: route53
         main: "*.example.test"
@@ -119,17 +119,17 @@
       - name: wildcard on an http resolver
         expect: "cannot issue wildcard certs"
         vars:
-          traefik_wildcard_certs:
+          traefik_certs:
             - { name: bad, resolver: http01, main: "*.example.test" }
       - name: wildcard san on an http resolver
         expect: "cannot issue wildcard certs"
         vars:
-          traefik_wildcard_certs:
+          traefik_certs:
             - { name: bad, resolver: http01, main: "example.test", sans: ["*.example.test"] }
       - name: default cert on an http resolver
         expect: "must use a dns resolver"
         vars:
-          traefik_wildcard_certs:
+          traefik_certs:
             - { name: bad, resolver: http01, main: "example.test" }
           traefik_default_cert: bad
       - name: unknown challenge value
@@ -148,3 +148,27 @@
       loop: "{{ _preflight_cases }}"
       loop_control:
         label: "{{ item.name }}"
+
+    # The old variable name is kept out of _preflight_cases because the helper
+    # sets traefik_certs; this case needs the legacy name defined instead.
+    - name: Preflight case | legacy variable name traefik_wildcard_certs
+      block:
+        - name: Preflight case | include role preflight with the old variable
+          ansible.builtin.include_role:
+            name: realtime.traefik
+            tasks_from: preflight.yml
+          vars:
+            traefik_wildcard_certs:
+              - { name: old, resolver: http01, main: "example.test" }
+
+        - name: Preflight case | fail if preflight unexpectedly passed
+          ansible.builtin.fail:
+            msg: "preflight passed with the legacy traefik_wildcard_certs variable"
+      rescue:
+        - name: Preflight case | assert the rename message and fix are shown
+          ansible.builtin.assert:
+            that:
+              - "'traefik_wildcard_certs was renamed to traefik_certs' in ansible_failed_result.msg"
+              - "'How to fix: rename the variable to traefik_certs' in ansible_failed_result.msg"
+            fail_msg: "legacy-name preflight failed with an unexpected message: {{ ansible_failed_result.msg }}"
+            quiet: true

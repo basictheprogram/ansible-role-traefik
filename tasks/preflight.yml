@@ -1,4 +1,26 @@
 ---
+- name: Preflight | traefik_wildcard_certs was renamed to traefik_certs
+  ansible.builtin.assert:
+    that:
+      - traefik_wildcard_certs is not defined
+    fail_msg: |-
+      The variable traefik_wildcard_certs was renamed to traefik_certs, and
+      this role no longer reads the old name.
+
+      What happened: this role now issues certificates with HTTP-01 and
+      TLS-ALPN-01 as well as DNS-01. Those certificates are exact FQDNs, not
+      wildcards, so the old name was misleading and was replaced.
+
+      Your inventory still sets traefik_wildcard_certs, so it is being
+      ignored. Continuing would fail later with misleading "FQDNs not
+      covered by any cert" errors, or deploy Traefik with no certificates.
+
+      How to fix: rename the variable to traefik_certs wherever you set it
+      (host_vars, group_vars, or playbook vars). The list contents are
+      unchanged and no other edits are needed. For example, change
+      "traefik_wildcard_certs:" to "traefik_certs:".
+    quiet: true
+
 - name: Preflight | ansible-core version meets minimum
   ansible.builtin.assert:
     that:
@@ -56,7 +78,7 @@
       cert '{{ item.name }}' references resolver '{{ item.resolver }}'
       which is not defined in traefik_acme_resolvers
     quiet: true
-  loop: "{{ traefik_wildcard_certs }}"
+  loop: "{{ traefik_certs }}"
   loop_control:
     label: "{{ item.name }}"
   when: traefik_acme_enabled
@@ -70,7 +92,7 @@
       ({{ traefik_acme_resolvers[item.resolver].challenge }}), which cannot issue
       wildcard certs; use a dns resolver or list exact FQDNs
     quiet: true
-  loop: "{{ traefik_wildcard_certs }}"
+  loop: "{{ traefik_certs }}"
   loop_control:
     label: "{{ item.name }}"
   when:
@@ -80,10 +102,10 @@
 - name: Preflight | traefik_default_cert names a real cert
   ansible.builtin.assert:
     that:
-      - traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | list | length > 0
+      - traefik_certs | selectattr('name', 'equalto', traefik_default_cert) | list | length > 0
     fail_msg: >-
       traefik_default_cert '{{ traefik_default_cert }}' does not match
-      any entry in traefik_wildcard_certs
+      any entry in traefik_certs
     quiet: true
   when: traefik_default_cert | length > 0
 
@@ -92,7 +114,7 @@
     that:
       - >-
         traefik_acme_resolvers[
-          (traefik_wildcard_certs | selectattr('name', 'equalto', traefik_default_cert) | first).resolver
+          (traefik_certs | selectattr('name', 'equalto', traefik_default_cert) | first).resolver
         ].challenge | default('dns') == 'dns'
     fail_msg: >-
       traefik_default_cert '{{ traefik_default_cert }}' is bound to a non-dns
@@ -102,13 +124,13 @@
     - traefik_acme_enabled
     - traefik_default_cert | length > 0
 
-- name: Preflight | explicit site.cert exists in traefik_wildcard_certs
+- name: Preflight | explicit site.cert exists in traefik_certs
   ansible.builtin.assert:
     that:
-      - traefik_wildcard_certs | selectattr('name', 'equalto', item.cert) | list | length > 0
+      - traefik_certs | selectattr('name', 'equalto', item.cert) | list | length > 0
     fail_msg: >-
       site '{{ item.name }}' specifies cert '{{ item.cert }}'
-      which is not in traefik_wildcard_certs
+      which is not in traefik_certs
     quiet: true
   loop: "{{ traefik_sites | selectattr('cert', 'defined') | selectattr('cert', 'ne', '') | list }}"
   loop_control:
@@ -118,7 +140,7 @@
   ansible.builtin.set_fact:
     _traefik_cred_items: >-
       {{
-        traefik_wildcard_certs
+        traefik_certs
         | map(attribute='resolver')
         | unique
         | map('extract', traefik_acme_resolvers)
@@ -148,7 +170,7 @@
       {%- for site in traefik_sites -%}
       {%- for fqdn in site.fqdns -%}
       {%- set found = namespace(ok=false) -%}
-      {%- for cert in traefik_wildcard_certs -%}
+      {%- for cert in traefik_certs -%}
       {%- for pat in ([cert.main] + (cert.sans | default([]))) -%}
       {%- if not found.ok -%}
       {%- if pat == fqdn or (
@@ -172,7 +194,7 @@
     that:
       - _traefik_uncovered_fqdns | from_json | length == 0
     fail_msg: >-
-      FQDNs not covered by any cert in traefik_wildcard_certs:
+      FQDNs not covered by any cert in traefik_certs:
       {{ _traefik_uncovered_fqdns | from_json | join(', ') }}
     quiet: true
 

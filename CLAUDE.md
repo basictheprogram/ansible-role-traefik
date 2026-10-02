@@ -101,7 +101,7 @@ flag the discrepancy and ask before fixing the design to match the code.
 `DESIGN.md` covers: public interface variable schemas, static config
 layout, TLS / ACME strategy (DNS-01 via IONOS, Route53, CloudFlare,
 or RFC 2136; HTTP-01 and TLS-ALPN-01 per resolver), dynamic config file-provider structure, site routing
-schema, wildcard cert schema, allowlist group model, inventory layout,
+schema, cert schema, allowlist group model, inventory layout,
 bootstrap sequence, migration path from hand-managed Compose, and
 multi-region deployment model.
 
@@ -114,7 +114,7 @@ Key structural points:
 * Sites are defined in `host_vars` as a `traefik_sites` list. Each
   entry produces a router, a service, and (if allowlisted) an
   `ipAllowList` middleware in the dynamic file provider.
-* Wildcard certs are declared in `traefik_wildcard_certs` and bound to
+* Certs are declared in `traefik_certs` and bound to
   a named resolver. Sites reference certs by name or inherit the
   default. Sites whose FQDNs span multiple cert specs emit one router
   per cert (named `<site>-<cert>`).
@@ -153,8 +153,9 @@ the human raises them:
 * TLS = Let's Encrypt. The challenge type is chosen per resolver via
   `challenge:` — `dns` (default; the only type that can issue
   wildcards), `http`, or `tls-alpn`. HTTP-01/TLS-ALPN-01 certs are
-  per-FQDN and live in `traefik_wildcard_certs` alongside wildcard
-  ones (the name is kept to avoid a breaking rename). Built-in
+  per-FQDN and live in `traefik_certs` alongside wildcard
+  ones (renamed from `traefik_wildcard_certs`; preflight fails loudly if
+  the old name is still set). Built-in
   `http01` and `tlsalpn01` resolvers carry no provider and no
   credentials. Preflight rejects `*.` patterns on non-`dns` resolvers
   and a non-`dns` resolver for `traefik_default_cert`. (Reverses the
@@ -208,7 +209,7 @@ resolver. No role changes needed; HTTP-01 support is not required.
 
 Consumer-side work needed (in the playbooks inventory, not this repo):
 * Vault `traefik_cloudflare_api_token` for the `cross-fire.org` zone.
-* Add a wildcard cert entry to `traefik_wildcard_certs`:
+* Add a wildcard cert entry to `traefik_certs`:
     - name: cross-fire-org
       resolver: cloudflare
       main: "*.cross-fire.org"
