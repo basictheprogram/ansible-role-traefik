@@ -26,7 +26,7 @@ wildcard certs, and file-provider dynamic config are the primary use case.
 | OS | Versions |
 | :--- | :--- |
 | Ubuntu | 22.04 (jammy), 24.04 (noble), 26.04 (resolute) |
-| Debian | 12 (bookworm), 13 (trixie) |
+| Debian | 13 (trixie) |
 
 ## Installation
 

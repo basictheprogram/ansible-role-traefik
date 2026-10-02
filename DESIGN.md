@@ -20,7 +20,7 @@ pray" workflow.
   cert set. Cert issuance does not require :80 to be reachable from the
   internet, and one cert covers any number of subdomains under a
   controlled zone.
-* Compatible with `ansible-core` >= 2.20, Debian 12/13 and Ubuntu 22.04/24.04,
+* Compatible with `ansible-core` >= 2.20, Debian 13 and Ubuntu 22.04/24.04,
   Traefik v3.
 
 ## Non-goals
@@ -141,7 +141,7 @@ ansible-role-traefik/
 │       ├── middlewares.yml.j2  # org-wide library + per-site allowlists
 │       └── sites.yml.j2        # routers + services + serversTransports
 ├── vars/main.yml              # internal constants
-├── molecule/default/          # CI: Debian 12, Debian 13, Ubuntu 22.04, 24.04
+├── molecule/default/          # CI: Debian 13, Ubuntu 22.04, 24.04
 ├── README.md
 └── DESIGN.md (this file)
 ```
