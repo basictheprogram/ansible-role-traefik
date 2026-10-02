@@ -76,8 +76,9 @@ certificatesResolvers:
 {% endif %}
       dnsChallenge:
         provider: {{ resolver.provider }}
-        delayBeforeCheck: {{ resolver.delay_before_check }}
-        disablePropagationCheck: {{ (resolver.disable_propagation_check | default(traefik_acme_disable_propagation_check)) | lower }}
+        propagation:
+          delayBeforeChecks: {{ resolver.delay_before_check }}
+          disableChecks: {{ (resolver.disable_propagation_check | default(traefik_acme_disable_propagation_check)) | lower }}
         resolvers:
 {% for r in (resolver.dns_resolvers | default(traefik_acme_default_dns_resolvers)) %}
           - "{{ r }}"

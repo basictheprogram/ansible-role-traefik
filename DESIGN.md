@@ -385,9 +385,10 @@ Notable differences from a typical hand-managed config:
   per-site `*-acme` router go away entirely.
 * `certificatesResolvers` is rendered as one block per entry in
   `traefik_acme_resolvers` — each with its own `dnsChallenge.provider`,
-  `delayBeforeCheck`, propagation `resolvers` list, and a per-resolver
-  `storage` path (`{{ traefik_certs_dir }}/acme-<name>.json`). No
-  `httpChallenge` block.
+  `dnsChallenge.propagation.delayBeforeChecks`, propagation `resolvers`
+  list, and a per-resolver `storage` path
+  (`{{ traefik_certs_dir }}/acme-<name>.json`). No `httpChallenge`
+  block.
 * `forwardedHeaders.trustedIPs` driven by `traefik_trusted_ips`.
 * `providers.docker.network: "{{ traefik_docker_network }}"` and
   `exposedByDefault: false` per role default.
@@ -450,7 +451,8 @@ certificatesResolvers:
       {% if traefik_acme_caserver %}caServer: "{{ traefik_acme_caserver }}"{% endif %}
       dnsChallenge:
         provider: ionos
-        delayBeforeCheck: 120
+        propagation:
+          delayBeforeChecks: 120
         resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
   route53:
     acme:
@@ -458,7 +460,8 @@ certificatesResolvers:
       storage: "{{ traefik_certs_dir }}/acme-route53.json"
       dnsChallenge:
         provider: route53
-        delayBeforeCheck: 0
+        propagation:
+          delayBeforeChecks: 0
         resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
   cloudflare:
     acme:
@@ -466,7 +469,8 @@ certificatesResolvers:
       storage: "{{ traefik_certs_dir }}/acme-cloudflare.json"
       dnsChallenge:
         provider: cloudflare
-        delayBeforeCheck: 0
+        propagation:
+          delayBeforeChecks: 0
         resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
   rfc2136:
     acme:
@@ -474,7 +478,8 @@ certificatesResolvers:
       storage: "{{ traefik_certs_dir }}/acme-rfc2136.json"
       dnsChallenge:
         provider: rfc2136
-        delayBeforeCheck: 120
+        propagation:
+          delayBeforeChecks: 120
         resolvers: ["1.1.1.1:53", "8.8.8.8:53"]
 ```
 
