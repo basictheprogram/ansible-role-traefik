@@ -9,13 +9,13 @@ galaxy_info:
   issue_tracker_url: "https://github.com/basictheprogram/ansible-role-traefik/issues"
   description: >-
     Deploys Traefik v3 as a reverse proxy and TLS edge on a single Docker host.
-    Manages DNS-01 ACME certificate issuance via RFC 2136 dynamic DNS updates
-    (compatible with BIND9, Knot, PowerDNS, and any TSIG-capable nameserver),
-    wildcard certificates, and dynamic routing configuration through the Traefik
-    file provider. Originally authored by Matthias Leutenegger; modernized for
-    ansible-core 2.20, Traefik v3, and an RFC 2136 DNS-01 ACME strategy by
-    Bob Tanner at Real Time Enterprises, Inc. Supports Debian (trixie)
-    and Ubuntu (jammy, noble, resolute).
+    Manages Let's Encrypt certificates via DNS-01 (wildcards; RFC 2136 dynamic
+    DNS updates compatible with BIND9, Knot, PowerDNS, and any TSIG-capable
+    nameserver, plus IONOS, Route53, and Cloudflare), HTTP-01, or TLS-ALPN-01,
+    and dynamic routing through the Traefik file provider. Originally authored
+    by Matthias Leutenegger; modernized for ansible-core 2.20, Traefik v3, and
+    RFC 2136 DNS-01 ACME by Bob Tanner at Real Time Enterprises, Inc. Supports
+    Debian (trixie) and Ubuntu (jammy, noble, resolute).
   license: "MIT"
   min_ansible_version: "2.20"
   galaxy_tags:
@@ -25,6 +25,8 @@ galaxy_info:
     - docker
     - acme
     - dns01
+    - http01
+    - tlsalpn01
     - tls
     - letsencrypt
     - ubuntu
