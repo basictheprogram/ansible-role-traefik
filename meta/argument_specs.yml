@@ -1,0 +1,280 @@
+---
+argument_specs:
+  main:
+    short_description: Deploy Traefik v3 as a reverse proxy and TLS edge on a Docker host
+    description:
+      - Deploys Traefik v3 via Docker Compose on a single host, renders the
+        static configuration and file-provider dynamic configuration, and
+        issues wildcard certificates through DNS-01 ACME (RFC 2136, IONOS,
+        Route53, Cloudflare).
+    options:
+      traefik_image:
+        type: str
+        default: "traefik:v3.7"
+        description: Traefik container image and tag.
+      traefik_container_name:
+        type: str
+        default: traefik
+        description: Container name; also the target of the healthcheck verify task.
+      traefik_restart_policy:
+        type: str
+        default: unless-stopped
+        description: Docker restart policy for the Traefik container.
+      traefik_check_new_version:
+        type: bool
+        default: true
+        description: Whether Traefik checks for new releases.
+      traefik_memory_limit:
+        type: str
+        default: 1g
+        description: Container memory limit.
+      traefik_memory_reservation:
+        type: str
+        default: 512m
+        description: Container memory reservation.
+      traefik_ulimit_nofile_soft:
+        type: int
+        default: 65536
+        description: Soft nofile ulimit for the container.
+      traefik_ulimit_nofile_hard:
+        type: int
+        default: 65536
+        description: Hard nofile ulimit for the container.
+      traefik_data_dir:
+        type: path
+        default: /etc/traefik
+        description: Host directory holding the static config and dynamic config directory.
+      traefik_dynamic_dir:
+        type: path
+        default: "{{ traefik_data_dir }}/dynamic"
+        description: Host directory for file-provider dynamic configuration (hot-reloaded).
+      traefik_certs_dir:
+        type: path
+        default: /var/lib/traefik/certs
+        description: Host directory for per-resolver acme-<name>.json files.
+      traefik_compose_dir:
+        type: path
+        default: /opt/traefik
+        description: Host directory holding compose.yml and .env.secrets.
+      traefik_docker_network:
+        type: str
+        default: traefik_proxy
+        description: Docker network created for Traefik and co-located containers.
+      traefik_entrypoint_web_port:
+        type: int
+        default: 80
+        description: Host port for the web entrypoint.
+      traefik_entrypoint_websecure_port:
+        type: int
+        default: 443
+        description: Host port for the websecure entrypoint.
+      traefik_cups_enabled:
+        type: bool
+        default: false
+        description: Enable the cups entrypoint (for CUPS/IPP print servers).
+      traefik_entrypoint_cups_port:
+        type: int
+        default: 631
+        description: Host port for the cups entrypoint when enabled.
+      traefik_trusted_ips:
+        type: list
+        elements: str
+        default: ["127.0.0.1/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+        description: CIDRs trusted for forwarded headers on the entrypoints.
+      traefik_log_level:
+        type: str
+        default: INFO
+        description: Traefik log level.
+      traefik_log_format:
+        type: str
+        default: json
+        description: Traefik log format.
+      traefik_compose_log_driver:
+        type: str
+        default: journald
+        description: Docker logging driver for the container.
+      traefik_journald_tag:
+        type: str
+        default: "traefik.{{ inventory_hostname }}"
+        description: Journald tag applied when the journald log driver is used.
+      traefik_journald_labels:
+        type: dict
+        description: Journald labels; defaults to an env label from traefik_environment.
+      traefik_environment:
+        type: str
+        required: false
+        description: Environment name used in the default journald env label (falls back to prod).
+      traefik_access_log:
+        type: dict
+        description: >-
+          Complete access-log configuration dict. Default is privacy-preserving
+          (headers dropped, only User-Agent kept); override with a full dict.
+      traefik_acme_enabled:
+        type: bool
+        default: true
+        description: Enable ACME certificate issuance.
+      traefik_acme_email:
+        type: str
+        default: ""
+        description: ACME account email. Required (non-empty) when traefik_acme_enabled is true.
+      traefik_acme_caserver:
+        type: str
+        default: ""
+        description: ACME CA server URL; set to the Let's Encrypt staging URL during bring-up.
+      traefik_acme_default_dns_resolvers:
+        type: list
+        elements: str
+        default: ["1.1.1.1:53", "8.8.8.8:53"]
+        description: Public DNS resolvers used to verify TXT propagation.
+      traefik_acme_disable_propagation_check:
+        type: bool
+        default: false
+        description: Skip the DNS propagation check; overridable per resolver.
+      traefik_acme_resolvers:
+        type: dict
+        description: >-
+          Resolver definitions keyed by name. Each value has provider (str),
+          delay_before_check (int), env (dict of provider env vars), and
+          optionally disable_propagation_check (bool) and dns_resolvers (list).
+          Defaults define ionos, route53, cloudflare and rfc2136.
+      traefik_ionos_api_key:
+        type: str
+        default: ""
+        no_log: true
+        description: IONOS API key; vault on the consumer side.
+      traefik_route53_access_key_id:
+        type: str
+        default: ""
+        no_log: true
+        description: Route53 access key ID; vault on the consumer side.
+      traefik_route53_secret_access_key:
+        type: str
+        default: ""
+        no_log: true
+        description: Route53 secret access key; vault on the consumer side.
+      traefik_cloudflare_api_token:
+        type: str
+        default: ""
+        no_log: true
+        description: Cloudflare DNS API token; vault on the consumer side.
+      traefik_rfc2136_tsig_api_key:
+        type: str
+        default: ""
+        no_log: true
+        description: RFC 2136 TSIG key; vault on the consumer side.
+      traefik_wildcard_certs:
+        type: list
+        elements: dict
+        default: []
+        description: Certificates to issue; each binds to a resolver in traefik_acme_resolvers.
+        options:
+          name:
+            type: str
+            required: true
+            description: Internal id, referenced by sites and traefik_default_cert.
+          resolver:
+            type: str
+            required: true
+            description: Key in traefik_acme_resolvers.
+          main:
+            type: str
+            required: true
+            description: Main domain, e.g. "*.portal.example.com".
+          sans:
+            type: list
+            elements: str
+            required: false
+            description: Additional subject alternative names.
+      traefik_default_cert:
+        type: str
+        default: ""
+        description: Name of the cert installed in the default TLS store; must exist in traefik_wildcard_certs.
+      traefik_provider_docker_enabled:
+        type: bool
+        default: true
+        description: Enable the Docker provider for co-located containers.
+      traefik_provider_docker_exposed_by_default:
+        type: bool
+        default: false
+        description: Whether Docker containers are exposed without explicit labels.
+      traefik_provider_file_enabled:
+        type: bool
+        default: true
+        description: Enable the file provider for dynamic configuration.
+      traefik_sites:
+        type: list
+        elements: dict
+        default: []
+        description: Sites to route; may be empty when using only co-located containers.
+        options:
+          name:
+            type: str
+            required: true
+            description: Router/service id.
+          fqdns:
+            type: list
+            elements: str
+            required: true
+            description: One or more hostnames; each must be covered by a cert in traefik_wildcard_certs.
+          backend:
+            type: str
+            required: true
+            description: Full backend URL.
+          backend_tls_skip_verify:
+            type: bool
+            default: false
+            description: Skip TLS verification to the backend.
+          cert:
+            type: str
+            required: false
+            description: Cert name; defaults to traefik_default_cert.
+          allowlist:
+            type: list
+            elements: str
+            required: false
+            description: Group names from traefik_allowlist_groups.
+          entrypoints:
+            type: list
+            elements: str
+            default: [websecure]
+            description: Entrypoints for the router.
+          extra_middlewares:
+            type: list
+            elements: str
+            default: []
+            description: Middlewares appended after the allowlist.
+          pass_host_header:
+            type: bool
+            default: true
+            description: Forward the Host header to the backend.
+          servers_transport:
+            type: str
+            required: false
+            description: Override the servers transport; unset uses the default.
+          priority:
+            type: int
+            required: false
+            description: Router priority override.
+      traefik_allowlist_groups:
+        type: dict
+        default: {}
+        description: Named CIDR lists referenced by site allowlists.
+      traefik_default_servers_transport:
+        type: dict
+        description: Default servers transport (forwarding timeouts and idle connection limits).
+      traefik_verify_healthcheck:
+        type: bool
+        default: true
+        description: Wait for the container healthcheck to report healthy after deployment.
+      traefik_verify_healthcheck_timeout:
+        type: int
+        default: 60
+        description: Seconds to poll docker inspect for a healthy status.
+      traefik_ping_entrypoint:
+        type: str
+        default: ""
+        description: Dedicated entrypoint for ping; empty leaves ping on the default entrypoint.
+      traefik_ping_entrypoint_address:
+        type: str
+        default: "127.0.0.1:8080"
+        description: Address of the ping entrypoint; only used when traefik_ping_entrypoint is set.
